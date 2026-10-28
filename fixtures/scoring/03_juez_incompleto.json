@@ -1,0 +1,44 @@
+{
+  "name": "Juez incompleto: la terna sin todos los criterios se excluye y se marca",
+  "rubric": {
+    "scale_min": 1,
+    "scale_max": 4,
+    "criteria": [
+      { "id": "c1", "weight": "60", "position": 1 },
+      { "id": "c2", "weight": "40", "position": 2 }
+    ]
+  },
+  "sessions": ["s1"],
+  "delegations": [
+    { "id": "MX", "delegate_ids": ["mx-1"] },
+    { "id": "US", "delegate_ids": ["us-1"] }
+  ],
+  "scores": [
+    { "judge_id": "j1", "delegate_id": "mx-1", "session_id": "s1", "criterion_id": "c1", "value": 4 },
+    { "judge_id": "j1", "delegate_id": "mx-1", "session_id": "s1", "criterion_id": "c2", "value": 4 },
+    { "judge_id": "j2", "delegate_id": "mx-1", "session_id": "s1", "criterion_id": "c1", "value": 1 },
+    { "judge_id": "j1", "delegate_id": "us-1", "session_id": "s1", "criterion_id": "c1", "value": 3 },
+    { "judge_id": "j1", "delegate_id": "us-1", "session_id": "s1", "criterion_id": "c2", "value": 3 },
+    { "judge_id": "j2", "delegate_id": "us-1", "session_id": "s1", "criterion_id": "c1", "value": 3 },
+    { "judge_id": "j2", "delegate_id": "us-1", "session_id": "s1", "criterion_id": "c2", "value": 3 }
+  ],
+  "expected": {
+    "delegates": {
+      "mx-1": { "final_score": "100.00", "session_scores": { "s1": "100.00" } },
+      "us-1": { "final_score": "75.00", "session_scores": { "s1": "75.00" } }
+    },
+    "ranking": [
+      {
+        "delegation_id": "MX", "position": 1, "tied": false, "score": "100.00",
+        "criteria_averages": { "c1": "4.00", "c2": "4.00" },
+        "incomplete_flags": [
+          { "kind": "incomplete", "delegate_id": "mx-1", "session_id": "s1", "judge_id": "j2" }
+        ]
+      },
+      {
+        "delegation_id": "US", "position": 2, "tied": false, "score": "75.00",
+        "criteria_averages": { "c1": "3.00", "c2": "3.00" }, "incomplete_flags": []
+      }
+    ]
+  }
+}

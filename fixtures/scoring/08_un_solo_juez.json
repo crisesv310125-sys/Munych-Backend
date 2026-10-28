@@ -1,0 +1,70 @@
+{
+  "name": "Un solo juez, rúbrica por defecto y 2 sesiones (redondeo mitad hacia arriba)",
+  "rubric": {
+    "scale_min": 1,
+    "scale_max": 4,
+    "criteria": [
+      { "id": "conocimiento", "weight": "20", "position": 1 },
+      { "id": "oratoria", "weight": "20", "position": 2 },
+      { "id": "negociacion", "weight": "20", "position": 3 },
+      { "id": "resoluciones", "weight": "15", "position": 4 },
+      { "id": "diplomacia", "weight": "15", "position": 5 },
+      { "id": "reglamento", "weight": "10", "position": 6 }
+    ]
+  },
+  "sessions": ["s1", "s2"],
+  "delegations": [
+    { "id": "MX", "delegate_ids": ["mx-1"] },
+    { "id": "DO", "delegate_ids": ["do-1"] }
+  ],
+  "scores": [
+    { "judge_id": "j1", "delegate_id": "mx-1", "session_id": "s1", "criterion_id": "conocimiento", "value": 4 },
+    { "judge_id": "j1", "delegate_id": "mx-1", "session_id": "s1", "criterion_id": "oratoria", "value": 4 },
+    { "judge_id": "j1", "delegate_id": "mx-1", "session_id": "s1", "criterion_id": "negociacion", "value": 4 },
+    { "judge_id": "j1", "delegate_id": "mx-1", "session_id": "s1", "criterion_id": "resoluciones", "value": 4 },
+    { "judge_id": "j1", "delegate_id": "mx-1", "session_id": "s1", "criterion_id": "diplomacia", "value": 4 },
+    { "judge_id": "j1", "delegate_id": "mx-1", "session_id": "s1", "criterion_id": "reglamento", "value": 4 },
+    { "judge_id": "j1", "delegate_id": "mx-1", "session_id": "s2", "criterion_id": "conocimiento", "value": 3 },
+    { "judge_id": "j1", "delegate_id": "mx-1", "session_id": "s2", "criterion_id": "oratoria", "value": 3 },
+    { "judge_id": "j1", "delegate_id": "mx-1", "session_id": "s2", "criterion_id": "negociacion", "value": 3 },
+    { "judge_id": "j1", "delegate_id": "mx-1", "session_id": "s2", "criterion_id": "resoluciones", "value": 3 },
+    { "judge_id": "j1", "delegate_id": "mx-1", "session_id": "s2", "criterion_id": "diplomacia", "value": 3 },
+    { "judge_id": "j1", "delegate_id": "mx-1", "session_id": "s2", "criterion_id": "reglamento", "value": 3 },
+    { "judge_id": "j1", "delegate_id": "do-1", "session_id": "s1", "criterion_id": "conocimiento", "value": 4 },
+    { "judge_id": "j1", "delegate_id": "do-1", "session_id": "s1", "criterion_id": "oratoria", "value": 3 },
+    { "judge_id": "j1", "delegate_id": "do-1", "session_id": "s1", "criterion_id": "negociacion", "value": 2 },
+    { "judge_id": "j1", "delegate_id": "do-1", "session_id": "s1", "criterion_id": "resoluciones", "value": 4 },
+    { "judge_id": "j1", "delegate_id": "do-1", "session_id": "s1", "criterion_id": "diplomacia", "value": 3 },
+    { "judge_id": "j1", "delegate_id": "do-1", "session_id": "s1", "criterion_id": "reglamento", "value": 2 },
+    { "judge_id": "j1", "delegate_id": "do-1", "session_id": "s2", "criterion_id": "conocimiento", "value": 2 },
+    { "judge_id": "j1", "delegate_id": "do-1", "session_id": "s2", "criterion_id": "oratoria", "value": 2 },
+    { "judge_id": "j1", "delegate_id": "do-1", "session_id": "s2", "criterion_id": "negociacion", "value": 2 },
+    { "judge_id": "j1", "delegate_id": "do-1", "session_id": "s2", "criterion_id": "resoluciones", "value": 2 },
+    { "judge_id": "j1", "delegate_id": "do-1", "session_id": "s2", "criterion_id": "diplomacia", "value": 2 },
+    { "judge_id": "j1", "delegate_id": "do-1", "session_id": "s2", "criterion_id": "reglamento", "value": 2 }
+  ],
+  "expected": {
+    "delegates": {
+      "mx-1": { "final_score": "87.50", "session_scores": { "s1": "100.00", "s2": "75.00" } },
+      "do-1": { "final_score": "63.13", "session_scores": { "s1": "76.25", "s2": "50.00" } }
+    },
+    "ranking": [
+      {
+        "delegation_id": "MX", "position": 1, "tied": false, "score": "87.50",
+        "criteria_averages": {
+          "conocimiento": "3.50", "oratoria": "3.50", "negociacion": "3.50",
+          "resoluciones": "3.50", "diplomacia": "3.50", "reglamento": "3.50"
+        },
+        "incomplete_flags": []
+      },
+      {
+        "delegation_id": "DO", "position": 2, "tied": false, "score": "63.13",
+        "criteria_averages": {
+          "conocimiento": "3.00", "oratoria": "2.50", "negociacion": "2.00",
+          "resoluciones": "3.00", "diplomacia": "2.50", "reglamento": "2.00"
+        },
+        "incomplete_flags": []
+      }
+    ]
+  }
+}

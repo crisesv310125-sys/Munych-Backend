@@ -1,0 +1,38 @@
+{
+  "name": "Escala distinta de 1–4 (0–10, con valor 0)",
+  "rubric": {
+    "scale_min": 0,
+    "scale_max": 10,
+    "criteria": [
+      { "id": "c1", "weight": "70", "position": 1 },
+      { "id": "c2", "weight": "30", "position": 2 }
+    ]
+  },
+  "sessions": ["s1"],
+  "delegations": [
+    { "id": "JP", "delegate_ids": ["jp-1"] },
+    { "id": "KR", "delegate_ids": ["kr-1"] }
+  ],
+  "scores": [
+    { "judge_id": "j1", "delegate_id": "jp-1", "session_id": "s1", "criterion_id": "c1", "value": 7 },
+    { "judge_id": "j1", "delegate_id": "jp-1", "session_id": "s1", "criterion_id": "c2", "value": 10 },
+    { "judge_id": "j1", "delegate_id": "kr-1", "session_id": "s1", "criterion_id": "c1", "value": 0 },
+    { "judge_id": "j1", "delegate_id": "kr-1", "session_id": "s1", "criterion_id": "c2", "value": 5 }
+  ],
+  "expected": {
+    "delegates": {
+      "jp-1": { "final_score": "79.00", "session_scores": { "s1": "79.00" } },
+      "kr-1": { "final_score": "15.00", "session_scores": { "s1": "15.00" } }
+    },
+    "ranking": [
+      {
+        "delegation_id": "JP", "position": 1, "tied": false, "score": "79.00",
+        "criteria_averages": { "c1": "7.00", "c2": "10.00" }, "incomplete_flags": []
+      },
+      {
+        "delegation_id": "KR", "position": 2, "tied": false, "score": "15.00",
+        "criteria_averages": { "c1": "0.00", "c2": "5.00" }, "incomplete_flags": []
+      }
+    ]
+  }
+}

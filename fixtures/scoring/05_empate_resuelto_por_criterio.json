@@ -1,0 +1,41 @@
+{
+  "name": "Empate resuelto por criterio: c1 y c2 pesan igual, decide el de menor position (c1)",
+  "rubric": {
+    "scale_min": 1,
+    "scale_max": 4,
+    "criteria": [
+      { "id": "c1", "weight": "40", "position": 1 },
+      { "id": "c2", "weight": "40", "position": 2 },
+      { "id": "c3", "weight": "20", "position": 3 }
+    ]
+  },
+  "sessions": ["s1"],
+  "delegations": [
+    { "id": "AR", "delegate_ids": ["ar-1"] },
+    { "id": "BR", "delegate_ids": ["br-1"] }
+  ],
+  "scores": [
+    { "judge_id": "j1", "delegate_id": "br-1", "session_id": "s1", "criterion_id": "c1", "value": 4 },
+    { "judge_id": "j1", "delegate_id": "br-1", "session_id": "s1", "criterion_id": "c2", "value": 2 },
+    { "judge_id": "j1", "delegate_id": "br-1", "session_id": "s1", "criterion_id": "c3", "value": 3 },
+    { "judge_id": "j1", "delegate_id": "ar-1", "session_id": "s1", "criterion_id": "c1", "value": 2 },
+    { "judge_id": "j1", "delegate_id": "ar-1", "session_id": "s1", "criterion_id": "c2", "value": 4 },
+    { "judge_id": "j1", "delegate_id": "ar-1", "session_id": "s1", "criterion_id": "c3", "value": 3 }
+  ],
+  "expected": {
+    "delegates": {
+      "ar-1": { "final_score": "75.00", "session_scores": { "s1": "75.00" } },
+      "br-1": { "final_score": "75.00", "session_scores": { "s1": "75.00" } }
+    },
+    "ranking": [
+      {
+        "delegation_id": "BR", "position": 1, "tied": false, "score": "75.00",
+        "criteria_averages": { "c1": "4.00", "c2": "2.00", "c3": "3.00" }, "incomplete_flags": []
+      },
+      {
+        "delegation_id": "AR", "position": 2, "tied": false, "score": "75.00",
+        "criteria_averages": { "c1": "2.00", "c2": "4.00", "c3": "3.00" }, "incomplete_flags": []
+      }
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "munych-calificaciones",
+  "private": true,
+  "description": "Herramientas del monorepo (Supabase CLI). El backend vive en apps/api.",
+  "devDependencies": {
+    "supabase": "^2"
+  }
+}

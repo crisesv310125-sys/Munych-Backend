@@ -1,0 +1,42 @@
+{
+  "name": "Caso básico: 2 jueces, 1 sesión, delegaciones individuales",
+  "rubric": {
+    "scale_min": 1,
+    "scale_max": 4,
+    "criteria": [
+      { "id": "c1", "weight": "60", "position": 1 },
+      { "id": "c2", "weight": "40", "position": 2 }
+    ]
+  },
+  "sessions": ["s1"],
+  "delegations": [
+    { "id": "MX", "delegate_ids": ["mx-1"] },
+    { "id": "US", "delegate_ids": ["us-1"] }
+  ],
+  "scores": [
+    { "judge_id": "j1", "delegate_id": "mx-1", "session_id": "s1", "criterion_id": "c1", "value": 4 },
+    { "judge_id": "j1", "delegate_id": "mx-1", "session_id": "s1", "criterion_id": "c2", "value": 3 },
+    { "judge_id": "j2", "delegate_id": "mx-1", "session_id": "s1", "criterion_id": "c1", "value": 3 },
+    { "judge_id": "j2", "delegate_id": "mx-1", "session_id": "s1", "criterion_id": "c2", "value": 3 },
+    { "judge_id": "j1", "delegate_id": "us-1", "session_id": "s1", "criterion_id": "c1", "value": 2 },
+    { "judge_id": "j1", "delegate_id": "us-1", "session_id": "s1", "criterion_id": "c2", "value": 4 },
+    { "judge_id": "j2", "delegate_id": "us-1", "session_id": "s1", "criterion_id": "c1", "value": 2 },
+    { "judge_id": "j2", "delegate_id": "us-1", "session_id": "s1", "criterion_id": "c2", "value": 2 }
+  ],
+  "expected": {
+    "delegates": {
+      "mx-1": { "final_score": "82.50", "session_scores": { "s1": "82.50" } },
+      "us-1": { "final_score": "60.00", "session_scores": { "s1": "60.00" } }
+    },
+    "ranking": [
+      {
+        "delegation_id": "MX", "position": 1, "tied": false, "score": "82.50",
+        "criteria_averages": { "c1": "3.50", "c2": "3.00" }, "incomplete_flags": []
+      },
+      {
+        "delegation_id": "US", "position": 2, "tied": false, "score": "60.00",
+        "criteria_averages": { "c1": "2.00", "c2": "3.00" }, "incomplete_flags": []
+      }
+    ]
+  }
+}

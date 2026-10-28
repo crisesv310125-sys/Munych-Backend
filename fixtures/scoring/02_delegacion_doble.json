@@ -1,0 +1,41 @@
+{
+  "name": "Delegación doble: la nota de la delegación es la media de sus delegados",
+  "rubric": {
+    "scale_min": 1,
+    "scale_max": 4,
+    "criteria": [
+      { "id": "c1", "weight": "50", "position": 1 },
+      { "id": "c2", "weight": "50", "position": 2 }
+    ]
+  },
+  "sessions": ["s1"],
+  "delegations": [
+    { "id": "CN", "delegate_ids": ["cn-1", "cn-2"] },
+    { "id": "RU", "delegate_ids": ["ru-1"] }
+  ],
+  "scores": [
+    { "judge_id": "j1", "delegate_id": "cn-1", "session_id": "s1", "criterion_id": "c1", "value": 4 },
+    { "judge_id": "j1", "delegate_id": "cn-1", "session_id": "s1", "criterion_id": "c2", "value": 4 },
+    { "judge_id": "j1", "delegate_id": "cn-2", "session_id": "s1", "criterion_id": "c1", "value": 2 },
+    { "judge_id": "j1", "delegate_id": "cn-2", "session_id": "s1", "criterion_id": "c2", "value": 2 },
+    { "judge_id": "j1", "delegate_id": "ru-1", "session_id": "s1", "criterion_id": "c1", "value": 3 },
+    { "judge_id": "j1", "delegate_id": "ru-1", "session_id": "s1", "criterion_id": "c2", "value": 2 }
+  ],
+  "expected": {
+    "delegates": {
+      "cn-1": { "final_score": "100.00", "session_scores": { "s1": "100.00" } },
+      "cn-2": { "final_score": "50.00", "session_scores": { "s1": "50.00" } },
+      "ru-1": { "final_score": "62.50", "session_scores": { "s1": "62.50" } }
+    },
+    "ranking": [
+      {
+        "delegation_id": "CN", "position": 1, "tied": false, "score": "75.00",
+        "criteria_averages": { "c1": "3.00", "c2": "3.00" }, "incomplete_flags": []
+      },
+      {
+        "delegation_id": "RU", "position": 2, "tied": false, "score": "62.50",
+        "criteria_averages": { "c1": "3.00", "c2": "2.00" }, "incomplete_flags": []
+      }
+    ]
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "name": "Empate no resuelto: misma nota y misma media en el criterio de desempate",
+  "rubric": {
+    "scale_min": 1,
+    "scale_max": 4,
+    "criteria": [
+      { "id": "c1", "weight": "60", "position": 1 },
+      { "id": "c2", "weight": "40", "position": 2 }
+    ]
+  },
+  "sessions": ["s1"],
+  "delegations": [
+    { "id": "FR", "delegate_ids": ["fr-1"] },
+    { "id": "DE", "delegate_ids": ["de-1"] },
+    { "id": "IT", "delegate_ids": ["it-1"] }
+  ],
+  "scores": [
+    { "judge_id": "j1", "delegate_id": "fr-1", "session_id": "s1", "criterion_id": "c1", "value": 3 },
+    { "judge_id": "j1", "delegate_id": "fr-1", "session_id": "s1", "criterion_id": "c2", "value": 3 },
+    { "judge_id": "j1", "delegate_id": "de-1", "session_id": "s1", "criterion_id": "c1", "value": 3 },
+    { "judge_id": "j1", "delegate_id": "de-1", "session_id": "s1", "criterion_id": "c2", "value": 3 },
+    { "judge_id": "j1", "delegate_id": "it-1", "session_id": "s1", "criterion_id": "c1", "value": 4 },
+    { "judge_id": "j1", "delegate_id": "it-1", "session_id": "s1", "criterion_id": "c2", "value": 4 }
+  ],
+  "expected": {
+    "delegates": {
+      "fr-1": { "final_score": "75.00", "session_scores": { "s1": "75.00" } },
+      "de-1": { "final_score": "75.00", "session_scores": { "s1": "75.00" } },
+      "it-1": { "final_score": "100.00", "session_scores": { "s1": "100.00" } }
+    },
+    "ranking": [
+      {
+        "delegation_id": "IT", "position": 1, "tied": false, "score": "100.00",
+        "criteria_averages": { "c1": "4.00", "c2": "4.00" }, "incomplete_flags": []
+      },
+      {
+        "delegation_id": "DE", "position": 2, "tied": true, "score": "75.00",
+        "criteria_averages": { "c1": "3.00", "c2": "3.00" }, "incomplete_flags": []
+      },
+      {
+        "delegation_id": "FR", "position": 2, "tied": true, "score": "75.00",
+        "criteria_averages": { "c1": "3.00", "c2": "3.00" }, "incomplete_flags": []
+      }
+    ]
+  }
+}

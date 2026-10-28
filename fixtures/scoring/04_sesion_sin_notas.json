@@ -1,0 +1,48 @@
+{
+  "name": "Sesión sin notas: no cuenta para la media y se marca; delegación sin ninguna nota al final",
+  "rubric": {
+    "scale_min": 1,
+    "scale_max": 4,
+    "criteria": [{ "id": "c1", "weight": "100", "position": 1 }]
+  },
+  "sessions": ["s1", "s2"],
+  "delegations": [
+    { "id": "MX", "delegate_ids": ["mx-1"] },
+    { "id": "US", "delegate_ids": ["us-1"] },
+    { "id": "FR", "delegate_ids": ["fr-1"] }
+  ],
+  "scores": [
+    { "judge_id": "j1", "delegate_id": "mx-1", "session_id": "s1", "criterion_id": "c1", "value": 4 },
+    { "judge_id": "j1", "delegate_id": "us-1", "session_id": "s1", "criterion_id": "c1", "value": 2 },
+    { "judge_id": "j1", "delegate_id": "us-1", "session_id": "s2", "criterion_id": "c1", "value": 3 }
+  ],
+  "expected": {
+    "delegates": {
+      "mx-1": { "final_score": "100.00", "session_scores": { "s1": "100.00", "s2": null } },
+      "us-1": { "final_score": "62.50", "session_scores": { "s1": "50.00", "s2": "75.00" } },
+      "fr-1": { "final_score": null, "session_scores": { "s1": null, "s2": null } }
+    },
+    "ranking": [
+      {
+        "delegation_id": "MX", "position": 1, "tied": false, "score": "100.00",
+        "criteria_averages": { "c1": "4.00" },
+        "incomplete_flags": [
+          { "kind": "session_without_scores", "delegate_id": "mx-1", "session_id": "s2", "judge_id": null }
+        ]
+      },
+      {
+        "delegation_id": "US", "position": 2, "tied": false, "score": "62.50",
+        "criteria_averages": { "c1": "2.50" }, "incomplete_flags": []
+      },
+      {
+        "delegation_id": "FR", "position": 3, "tied": false, "score": null,
+        "criteria_averages": { "c1": null },
+        "incomplete_flags": [
+          { "kind": "session_without_scores", "delegate_id": "fr-1", "session_id": "s1", "judge_id": null },
+          { "kind": "session_without_scores", "delegate_id": "fr-1", "session_id": "s2", "judge_id": null },
+          { "kind": "delegate_without_scores", "delegate_id": "fr-1", "session_id": null, "judge_id": null }
+        ]
+      }
+    ]
+  }
+}

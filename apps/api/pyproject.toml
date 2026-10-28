@@ -1,0 +1,188 @@
+[project]
+name = "munych-api"
+version = "0.1.0"
+description = "Backend del sistema de calificaciones MUNYCH (fase 1)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "gunicorn>=23; sys_platform != 'win32'",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "email-validator>=2.2",
+    "python-multipart>=0.0.12",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
+    "pyjwt[crypto]>=2.10",
+    "supabase>=2.10",
+    "openpyxl>=3.1",
+    "httpx>=0.27",
+    "slowapi>=0.1.9",
+    "structlog>=24.4",
+    "sentry-sdk[fastapi]>=2.18",
+    "tzdata>=2024.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "hypothesis>=6.118",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "import-linter>=2.1",
+    "types-openpyxl>=3.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/munych_api"]
+
+# ---------------------------------------------------------------- Ruff
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F", "I", "B", "UP", "N", "S", "C4", "SIM", "RUF", "ASYNC", "PT", "DTZ", "T20", "PL",
+]
+ignore = [
+    "PLR0913",  # los casos de uso y endpoints reciben muchas dependencias inyectadas
+    "PLR2004",  # números mágicos en reglas de negocio documentadas
+    "B008",     # Depends(...) en argumentos por defecto es el idioma de FastAPI
+    "RUF001",   # textos en español con caracteres ambiguos
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "S608", "PLR0915", "PLC0415"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path", "fastapi.File"]
+
+# ---------------------------------------------------------------- mypy
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+packages = ["munych_api"]
+plugins = ["pydantic.mypy"]
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = ["slowapi.*", "asyncpg.*", "gotrue.*", "supabase.*", "storage3.*"]
+ignore_missing_imports = true
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+# ---------------------------------------------------------------- pytest
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+addopts = "-ra --strict-markers"
+markers = [
+    "integration: requiere el stack local de Supabase (`just db-start`)",
+]
+
+[tool.coverage.run]
+source = ["munych_api"]
+branch = true
+
+# ---------------------------------------------------------------- import-linter
+[tool.importlinter]
+root_package = "munych_api"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "scoring_engine es puro (no importa el resto de la app)"
+type = "forbidden"
+source_modules = ["munych_api.scoring_engine"]
+forbidden_modules = ["munych_api.shared", "munych_api.modules", "munych_api.main", "munych_api.config"]
+
+[[tool.importlinter.contracts]]
+name = "scoring_engine solo usa la biblioteca estándar"
+type = "forbidden"
+source_modules = ["munych_api.scoring_engine"]
+forbidden_modules = ["fastapi", "sqlalchemy", "supabase", "httpx", "pydantic", "structlog"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Kernel compartido sin frameworks"
+type = "forbidden"
+source_modules = ["munych_api.shared.kernel"]
+forbidden_modules = ["fastapi", "sqlalchemy", "supabase", "httpx"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "domain/ no importa frameworks ni infraestructura"
+type = "forbidden"
+source_modules = ["munych_api.modules.scoring.domain", "munych_api.modules.results.domain"]
+forbidden_modules = ["fastapi", "sqlalchemy", "supabase", "httpx", "openpyxl", "munych_api.shared.database"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Capas hexagonales: api → infrastructure → application → domain"
+type = "layers"
+containers = ["munych_api.modules.scoring", "munych_api.modules.results"]
+layers = ["api", "infrastructure", "application", "domain"]
+
+[[tool.importlinter.contracts]]
+name = "application/ no depende de frameworks ni de la BD"
+type = "forbidden"
+source_modules = ["munych_api.modules.scoring.application", "munych_api.modules.results.application"]
+forbidden_modules = ["fastapi", "sqlalchemy", "supabase", "httpx", "openpyxl", "munych_api.shared.database"]
+allow_indirect_imports = true
+
+# Un módulo no importa el repository (ni la infraestructura) de otro módulo.
+[[tool.importlinter.contracts]]
+name = "Repositorios privados: identity"
+type = "forbidden"
+source_modules = ["munych_api.modules.events", "munych_api.modules.judging", "munych_api.modules.rubrics", "munych_api.modules.audit", "munych_api.modules.scoring", "munych_api.modules.results"]
+forbidden_modules = ["munych_api.modules.identity.repository"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Repositorios privados: events"
+type = "forbidden"
+source_modules = ["munych_api.modules.identity", "munych_api.modules.judging", "munych_api.modules.rubrics", "munych_api.modules.audit", "munych_api.modules.scoring", "munych_api.modules.results"]
+forbidden_modules = ["munych_api.modules.events.repository"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Repositorios privados: judging"
+type = "forbidden"
+source_modules = ["munych_api.modules.identity", "munych_api.modules.events", "munych_api.modules.rubrics", "munych_api.modules.audit", "munych_api.modules.scoring", "munych_api.modules.results"]
+forbidden_modules = ["munych_api.modules.judging.repository"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Repositorios privados: rubrics"
+type = "forbidden"
+source_modules = ["munych_api.modules.identity", "munych_api.modules.events", "munych_api.modules.judging", "munych_api.modules.audit", "munych_api.modules.scoring", "munych_api.modules.results"]
+forbidden_modules = ["munych_api.modules.rubrics.repository"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Repositorios privados: audit"
+type = "forbidden"
+source_modules = ["munych_api.modules.identity", "munych_api.modules.events", "munych_api.modules.judging", "munych_api.modules.rubrics", "munych_api.modules.scoring", "munych_api.modules.results"]
+forbidden_modules = ["munych_api.modules.audit.repository"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Infraestructura privada: scoring y results"
+type = "independence"
+modules = ["munych_api.modules.scoring", "munych_api.modules.results"]

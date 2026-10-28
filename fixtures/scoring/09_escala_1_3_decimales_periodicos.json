@@ -1,0 +1,30 @@
+{
+  "name": "Escala 1–3: decimales periódicos, se redondea solo al final",
+  "rubric": {
+    "scale_min": 1,
+    "scale_max": 3,
+    "criteria": [
+      { "id": "c1", "weight": "50", "position": 1 },
+      { "id": "c2", "weight": "50", "position": 2 }
+    ]
+  },
+  "sessions": ["s1"],
+  "delegations": [{ "id": "PE", "delegate_ids": ["pe-1"] }],
+  "scores": [
+    { "judge_id": "j1", "delegate_id": "pe-1", "session_id": "s1", "criterion_id": "c1", "value": 2 },
+    { "judge_id": "j1", "delegate_id": "pe-1", "session_id": "s1", "criterion_id": "c2", "value": 3 },
+    { "judge_id": "j2", "delegate_id": "pe-1", "session_id": "s1", "criterion_id": "c1", "value": 3 },
+    { "judge_id": "j2", "delegate_id": "pe-1", "session_id": "s1", "criterion_id": "c2", "value": 3 }
+  ],
+  "expected": {
+    "delegates": {
+      "pe-1": { "final_score": "91.67", "session_scores": { "s1": "91.67" } }
+    },
+    "ranking": [
+      {
+        "delegation_id": "PE", "position": 1, "tied": false, "score": "91.67",
+        "criteria_averages": { "c1": "2.50", "c2": "3.00" }, "incomplete_flags": []
+      }
+    ]
+  }
+}
