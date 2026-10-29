@@ -4,7 +4,8 @@
       "src": "apps/api/src/munych_api/main.py",
       "use": "@vercel/python",
       "config": {
-        "includeFiles": "apps/api/src/**"
+        "includeFiles": "apps/api/src/**",
+        "PYTHONPATH": "apps/api/src"
       }
     }
   ],
