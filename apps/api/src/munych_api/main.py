@@ -34,8 +34,8 @@ src_dir = os.path.dirname(current_dir)  # .../src
 if src_dir not in sys.path:
   sys.path.insert(0, src_dir)
 
-# 3. Tus importaciones ahora funcionarán sin problemas
-from munych_api.config import Settings, get_settings
+from .config import Settings, get_settings
+
 API_PREFIX = "/api/v1"
 
 
