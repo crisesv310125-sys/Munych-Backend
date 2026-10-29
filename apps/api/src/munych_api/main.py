@@ -23,7 +23,19 @@ from munych_api.shared.errors import register_error_handlers
 from munych_api.shared.observability import configure_logging, configure_sentry
 from munych_api.shared.rate_limit import limiter, rate_limit_exceeded_handler
 from munych_api.shared.supabase import SupabaseAdmin
+import os
+import sys
 
+# 1. Obtiene la ruta del directorio 'src' (dos niveles arriba de main.py)
+current_dir = os.path.dirname(os.path.abspath(__file__))  # .../munych_api
+src_dir = os.path.dirname(current_dir)  # .../src
+
+# 2. Agrega 'src' al inicio del PYTHONPATH
+if src_dir not in sys.path:
+  sys.path.insert(0, src_dir)
+
+# 3. Tus importaciones ahora funcionarán sin problemas
+from munych_api.config import Settings, get_settings
 API_PREFIX = "/api/v1"
 
 
