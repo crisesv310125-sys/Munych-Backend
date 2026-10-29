@@ -8,7 +8,16 @@ from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
 from slowapi.errors import RateLimitExceeded
+import sys
+from pathlib import Path
 
+# Fuerza a Python a incluir la carpeta 'src' en la búsqueda de módulos
+SRC_DIR = Path(__file__).resolve().parent.parent
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+# Ahora tus importaciones funcionarán sin cambiar nada más
+from munych_api.config import Settings, get_settings
 from munych_api.config import Settings, get_settings
 from munych_api.modules.events.router import router as events_router
 from munych_api.modules.identity.router import router as identity_router
@@ -26,15 +35,6 @@ from munych_api.shared.supabase import SupabaseAdmin
 import os
 import sys
 
-# 1. Obtiene la ruta del directorio 'src' (dos niveles arriba de main.py)
-current_dir = os.path.dirname(os.path.abspath(__file__))  # .../munych_api
-src_dir = os.path.dirname(current_dir)  # .../src
-
-# 2. Agrega 'src' al inicio del PYTHONPATH
-if src_dir not in sys.path:
-  sys.path.insert(0, src_dir)
-
-from .config import Settings, get_settings
 
 API_PREFIX = "/api/v1"
 
