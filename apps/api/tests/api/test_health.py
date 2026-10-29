@@ -1,4 +1,7 @@
-from httpx import AsyncClient
+from fastapi import FastAPI, Response
+from httpx import ASGITransport, AsyncClient
+
+from munych_api.shared.http_cache import NoStoreMiddleware
 
 
 async def test_health(client: AsyncClient) -> None:
@@ -15,6 +18,28 @@ async def test_unknown_route_returns_problem_json(client: AsyncClient) -> None:
     assert body["code"] == "NOT_FOUND"
     assert body["status"] == 404
     assert body["detail"] == "Recurso no encontrado"
+
+
+async def test_responses_are_not_cacheable(client: AsyncClient) -> None:
+    ok = await client.get("/api/v1/health")
+    assert ok.headers["cache-control"] == "no-store"
+
+    error = await client.get("/api/v1/no-existe")
+    assert error.headers["cache-control"] == "no-store"
+
+
+async def test_explicit_cache_control_is_kept() -> None:
+    app = FastAPI()
+    app.add_middleware(NoStoreMiddleware)
+
+    @app.get("/cacheable")
+    async def cacheable(response: Response) -> dict[str, str]:
+        response.headers["Cache-Control"] = "public, max-age=60"
+        return {}
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        response = await c.get("/cacheable")
+    assert response.headers["cache-control"] == "public, max-age=60"
 
 
 async def test_openapi_uses_function_names_as_operation_ids(client: AsyncClient) -> None:

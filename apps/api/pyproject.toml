@@ -64,6 +64,8 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106", "S608", "PLR0915", "PLC0415"]
+# main.py ajusta sys.path antes de importar munych_api (despliegue en Vercel).
+"src/munych_api/main.py" = ["E402"]
 
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path", "fastapi.File"]

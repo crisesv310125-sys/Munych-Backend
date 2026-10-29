@@ -1,23 +1,22 @@
 """Punto de entrada de la API FastAPI."""
 
 import asyncio
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
 from slowapi.errors import RateLimitExceeded
-import sys
-from pathlib import Path
 
-# Fuerza a Python a incluir la carpeta 'src' en la búsqueda de módulos
+# Vercel (@vercel/python, ver vercel.json) ejecuta este archivo sin instalar el paquete:
+# hay que añadir `src/` al path antes de importar `munych_api`. En local (`uv`) no hace falta.
 SRC_DIR = Path(__file__).resolve().parent.parent
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-# Ahora tus importaciones funcionarán sin cambiar nada más
-from munych_api.config import Settings, get_settings
 from munych_api.config import Settings, get_settings
 from munych_api.modules.events.router import router as events_router
 from munych_api.modules.identity.router import router as identity_router
@@ -29,12 +28,10 @@ from munych_api.modules.scoring.api.router import router as scoring_router
 from munych_api.shared.auth import JwtVerifier, SupabaseKeyResolver
 from munych_api.shared.database import Database
 from munych_api.shared.errors import register_error_handlers
+from munych_api.shared.http_cache import NoStoreMiddleware
 from munych_api.shared.observability import configure_logging, configure_sentry
 from munych_api.shared.rate_limit import limiter, rate_limit_exceeded_handler
 from munych_api.shared.supabase import SupabaseAdmin
-import os
-import sys
-
 
 API_PREFIX = "/api/v1"
 
@@ -106,6 +103,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["Authorization", "Content-Type"],
     )
+    # Va por fuera de CORS para cubrir también las respuestas de preflight y de error.
+    app.add_middleware(NoStoreMiddleware)
     register_error_handlers(app)
 
     api = APIRouter(prefix=API_PREFIX)
