@@ -1,0 +1,17 @@
+{
+  "builds": [
+    {
+      "src": "apps/api/src/munych_api/main.py",
+      "use": "@vercel/python",
+      "config": {
+        "includeFiles": "apps/api/src/**"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "apps/api/src/munych_api/main.py"
+    }
+  ]
+}
