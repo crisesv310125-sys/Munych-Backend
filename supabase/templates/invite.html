@@ -1,0 +1,104 @@
+<!--
+  Correo de invitación a jueces. En producción se pega en Supabase → Authentication → Emails → Invite user.
+  `{{ .Data.* }}` es el user_metadata que manda el backend (identity/service.py → invitation_data):
+  full_name, event_name, event_dates, event_host.
+-->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#ece9e2;">
+  <tr>
+    <td align="center" style="padding:16px;">
+
+      <!-- Tarjeta -->
+      <table role="presentation" width="460" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:460px;background-color:#ffffff;border-radius:12px;overflow:hidden;">
+
+        <!-- Header -->
+        <tr>
+          <td style="background-color:#0b2540;padding:24px 28px 28px 28px;border-bottom:3px solid #c9a227;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td align="left" style="font-family:Georgia,'Times New Roman',serif;font-size:15px;font-weight:bold;color:#ffffff;letter-spacing:0.5px;">MUNYCH</td>
+                <td align="right" style="font-family:'Courier New',Courier,monospace;font-size:9px;letter-spacing:2px;color:#c9a227;text-transform:uppercase;">Invitación</td>
+              </tr>
+            </table>
+            <h1 style="margin:26px 0 0 0;font-family:Georgia,'Times New Roman',serif;font-size:30px;line-height:36px;font-weight:bold;color:#ffffff;">Queremos que seas juez en nuestro modelo.</h1>
+          </td>
+        </tr>
+
+        <!-- Cuerpo -->
+        <tr>
+          <td style="padding:28px 28px 8px 28px;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:20px;color:#1a1a1a;">
+            <p style="margin:0 0 20px 0;">La Secretaría General de Munych Association te invita a evaluar a las delegaciones en el siguiente evento:</p>
+
+            <!-- Asignación -->
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f7f5f0;border:1px solid #e0dcd2;border-radius:8px;">
+              <tr>
+                <td style="padding:16px 18px;">
+                  <div style="font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:bold;color:#0b2540;padding:6px 0 12px 0;border-bottom:1px solid #dcd8cd;">{{.Data.event_name}}</div>
+
+                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                      <td width="50%" valign="top" style="padding-top:12px;font-family:Arial,Helvetica,sans-serif;">
+                        <div style="font-size:10px;color:#777777;">Fechas</div>
+                        <div style="font-size:12px;font-weight:bold;color:#1a1a1a;padding-top:3px;">{{.Data.event_dates}}</div>
+                      </td>
+                      <td width="50%" valign="top" style="padding-top:12px;font-family:Arial,Helvetica,sans-serif;">
+                        <div style="font-size:10px;color:#777777;">Sede</div>
+                        <div style="font-size:12px;font-weight:bold;color:#1a1a1a;padding-top:3px;">{{.Data.event_host}}</div>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- Botón -->
+        <tr>
+          <td style="padding:20px 28px 0 28px;font-family:Arial,Helvetica,sans-serif;">
+            <a href="{{ .ConfirmationURL }}" style="display:inline-block;background-color:#c9a227;color:#0b2540;font-size:13px;font-weight:bold;text-decoration:none;padding:13px 0;width:168px;text-align:center;border-radius:6px;">Aceptar invitación</a>
+            <p style="margin:10px 0 0 0;font-size:10px;line-height:15px;color:#666666;">El enlace vence el <strong>7 de noviembre</strong>. ¿No puedes participar? <a href="mailto:secretaria@munych.org" style="color:#0b2540;font-weight:bold;">Avísanos aquí</a>.</p>
+          </td>
+        </tr>
+
+        <!-- Cómo funciona -->
+        <tr>
+          <td style="padding:24px 28px 28px 28px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid #e6e2d8;">
+              <tr>
+                <td style="padding-top:18px;font-family:'Courier New',Courier,monospace;font-size:9px;letter-spacing:2px;color:#777777;text-transform:uppercase;">Cómo funciona</td>
+              </tr>
+              <tr>
+                <td style="padding-top:14px;">
+                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                      <td width="24" valign="top" style="font-family:Georgia,'Times New Roman',serif;font-size:15px;font-weight:bold;color:#c9a227;">1</td>
+                      <td style="font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:17px;color:#1a1a1a;padding-bottom:12px;"><strong>Crea tu contraseña.</strong><br><span style="color:#777777;">Tu usuario es este correo.</span></td>
+                    </tr>
+                    <tr>
+                      <td width="24" valign="top" style="font-family:Georgia,'Times New Roman',serif;font-size:15px;font-weight:bold;color:#c9a227;">2</td>
+                      <td style="font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:17px;color:#1a1a1a;padding-bottom:12px;"><strong>Revisa los criterios y sus pesos.</strong><br><span style="color:#777777;">Los verás en tu panel antes del evento.</span></td>
+                    </tr>
+                    <tr>
+                      <td width="24" valign="top" style="font-family:Georgia,'Times New Roman',serif;font-size:15px;font-weight:bold;color:#c9a227;">3</td>
+                      <td style="font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:17px;color:#1a1a1a;"><strong>Califica durante las sesiones.</strong><br><span style="color:#777777;">Se guarda solo; puedes editar hasta el cierre.</span></td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- Footer -->
+        <tr>
+          <td style="background-color:#f7f5f0;border-top:1px solid #e6e2d8;padding:20px 28px;font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:17px;color:#1a1a1a;">
+            Gracias,<br>
+            <strong>Dirección General Munych</strong><br>
+            <a href="mailto:munychassociation.contacto@gmail.com" style="color:#0b2540;text-decoration:underline;">munychassociation.contacto@gmail.com</a>
+          </td>
+        </tr>
+
+      </table>
+    </td>
+  </tr>
+</table>

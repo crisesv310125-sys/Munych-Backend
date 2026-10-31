@@ -75,13 +75,16 @@ class IdentityRepository:
         row = (await self._session.execute(query)).mappings().first()
         return dict(row) if row else None
 
-    async def event_exists(self, event_id: UUID, organization_id: UUID) -> bool:
-        found = await self._session.scalar(
-            select(events.c.id).where(
-                events.c.id == event_id, events.c.organization_id == organization_id
+    async def get_event(self, event_id: UUID, organization_id: UUID) -> dict[str, Any] | None:
+        """Datos del evento que se muestran en el correo de invitación."""
+        row = (
+            await self._session.execute(
+                select(events.c.name, events.c.venue, events.c.starts_on, events.c.ends_on).where(
+                    events.c.id == event_id, events.c.organization_id == organization_id
+                )
             )
-        )
-        return found is not None
+        ).first()
+        return dict(row._mapping) if row else None
 
     async def add_judge_to_event(self, user_id: UUID, event_id: UUID) -> None:
         await self._session.execute(

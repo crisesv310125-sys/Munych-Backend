@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from tests.support.auth import bearer, make_token
-from tests.support.seed import ADMIN_ID, JUDGE_1_ID
+from tests.support.seed import ADMIN_ID, EVENT_ID, JUDGE_1_ID
 from tests.support.supabase import FakeSupabase
 
 pytestmark = pytest.mark.integration
@@ -55,6 +55,33 @@ async def test_invite_new_judge_creates_judge_and_role(
     assert body["active"] is True
     assert fake_supabase.invited == [email]
     assert fake_supabase.invite_redirects == ["http://localhost:5173"]
+    assert fake_supabase.invite_data == [{"full_name": "Nueva Jueza"}]
+
+
+async def test_invite_sends_event_data_for_email_template(
+    client: AsyncClient, fake_supabase: FakeSupabase
+) -> None:
+    email = f"evento-{uuid.uuid4().hex[:8]}@munych.dev"
+    body = {"email": email, "full_name": "Ana Pérez", "event_id": EVENT_ID}
+    response = await client.post("/api/v1/judges", headers=ADMIN, json=body)
+    assert response.status_code == 201, response.text
+    expected = {
+        "full_name": "Ana Pérez",
+        "event_name": "SD-MUN 2026",
+        "event_dates": "9–11 de octubre de 2026",
+        "event_host": "Santo Domingo",
+    }
+    assert fake_supabase.invite_data == [expected]
+
+    # Reinvitar a un usuario sin confirmar: GoTrue no toca su metadata, así que se actualiza aparte.
+    again = await client.post("/api/v1/judges", headers=ADMIN, json=body)
+    assert fake_supabase.metadata_updates == [(uuid.UUID(again.json()["judge_id"]), expected)]
+    assert fake_supabase.invited == [email, email]
+
+    unknown = await client.post(
+        "/api/v1/judges", headers=ADMIN, json={**body, "event_id": str(uuid.uuid4())}
+    )
+    assert unknown.status_code == 404
 
 
 async def test_invited_judge_is_listed_only_after_accepting(

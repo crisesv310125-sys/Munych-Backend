@@ -1,6 +1,7 @@
 """Dobles de los puertos de Supabase (`AuthAdmin` y `ObjectStorage`)."""
 
 import uuid
+from collections.abc import Mapping
 from uuid import UUID
 
 from sqlalchemy import text
@@ -16,11 +17,20 @@ class FakeSupabase:
         self._engine = engine
         self.invited: list[str] = []
         self.invite_redirects: list[str | None] = []
+        self.invite_data: list[dict[str, str] | None] = []
+        self.metadata_updates: list[tuple[UUID, dict[str, str]]] = []
         self.uploads: dict[tuple[str, str], tuple[bytes, str]] = {}
 
-    async def invite_user_by_email(self, email: str, *, redirect_to: str | None = None) -> UUID:
+    async def invite_user_by_email(
+        self,
+        email: str,
+        *,
+        redirect_to: str | None = None,
+        data: Mapping[str, str] | None = None,
+    ) -> UUID:
         self.invited.append(email)
         self.invite_redirects.append(redirect_to)
+        self.invite_data.append(dict(data) if data is not None else None)
         user_id = uuid.uuid4()
         if self._engine is not None:
             async with self._engine.begin() as conn:
@@ -41,6 +51,9 @@ class FakeSupabase:
                     {"id": user_id, "email": email},
                 )
         return user_id
+
+    async def update_user_metadata(self, user_id: UUID, data: Mapping[str, str]) -> None:
+        self.metadata_updates.append((user_id, dict(data)))
 
     async def upload(self, bucket: str, path: str, content: bytes, content_type: str) -> None:
         self.uploads[(bucket, path)] = (content, content_type)

@@ -4,6 +4,7 @@ Se expone detrás de dos puertos pequeños (`AuthAdmin` y `ObjectStorage`) para
 poder sustituirlo por dobles en las pruebas. La clave nunca se registra en logs.
 """
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Protocol
 from uuid import UUID
 
@@ -15,8 +16,22 @@ if TYPE_CHECKING:
 
 
 class AuthAdmin(Protocol):
-    async def invite_user_by_email(self, email: str, *, redirect_to: str | None = None) -> UUID:
-        """Envía la invitación y devuelve el id del usuario creado."""
+    async def invite_user_by_email(
+        self,
+        email: str,
+        *,
+        redirect_to: str | None = None,
+        data: Mapping[str, str] | None = None,
+    ) -> UUID:
+        """Envía la invitación y devuelve el id del usuario creado.
+
+        `data` se guarda en `user_metadata` y la plantilla del correo lo lee como `{{ .Data.* }}`.
+        Si el usuario ya existía, GoTrue no lo actualiza: llama antes a `update_user_metadata`.
+        """
+        ...
+
+    async def update_user_metadata(self, user_id: UUID, data: Mapping[str, str]) -> None:
+        """Fusiona `data` en el `user_metadata` del usuario."""
         ...
 
 
@@ -45,11 +60,19 @@ class SupabaseAdmin:
             self._client = await acreate_client(self._url, self._key.get_secret_value())
         return self._client
 
-    async def invite_user_by_email(self, email: str, *, redirect_to: str | None = None) -> UUID:
+    async def invite_user_by_email(
+        self,
+        email: str,
+        *,
+        redirect_to: str | None = None,
+        data: Mapping[str, str] | None = None,
+    ) -> UUID:
         from supabase_auth.errors import AuthApiError  # noqa: PLC0415 — solo si se usa
 
         client = await self._get_client()
         options: dict[str, Any] = {"redirect_to": redirect_to} if redirect_to else {}
+        if data:
+            options["data"] = dict(data)
         try:
             response = await client.auth.admin.invite_user_by_email(email, options)  # type: ignore[arg-type]
         except AuthApiError as exc:
@@ -67,6 +90,10 @@ class SupabaseAdmin:
         if response.user is None:  # pragma: no cover — respuesta anómala de GoTrue
             raise RuntimeError("Supabase no devolvió el usuario invitado")
         return UUID(str(response.user.id))
+
+    async def update_user_metadata(self, user_id: UUID, data: Mapping[str, str]) -> None:
+        client = await self._get_client()
+        await client.auth.admin.update_user_by_id(str(user_id), {"user_metadata": dict(data)})
 
     async def upload(self, bucket: str, path: str, content: bytes, content_type: str) -> None:
         client = await self._get_client()
