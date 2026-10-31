@@ -11,6 +11,7 @@ os.environ.setdefault("ENVIRONMENT", "test")
 
 from munych_api.config import Settings
 from munych_api.main import create_app
+from munych_api.modules.results.api.dependencies import get_revalidator
 from munych_api.shared.auth import get_token_verifier
 from tests.support.auth import make_test_verifier
 from tests.support.supabase import FakeRevalidator, FakeSupabase
@@ -79,7 +80,7 @@ async def app(
     application = create_app(settings)
     application.dependency_overrides[get_token_verifier] = make_test_verifier
     application.state.supabase = fake_supabase
-    application.state.revalidator = fake_revalidator
+    application.dependency_overrides[get_revalidator] = lambda: fake_revalidator
     yield application
     await application.state.database.dispose()
 

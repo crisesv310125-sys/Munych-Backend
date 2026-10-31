@@ -63,7 +63,7 @@ class FakeSupabase:
 
 
 class FakeRevalidator:
-    """Doble del webhook de revalidación: registra los slugs avisados."""
+    """Doble de la reconstrucción del sitio público: registra los slugs avisados."""
 
     def __init__(self, ok: bool = True) -> None:
         self.ok = ok

@@ -1,14 +1,10 @@
-"""Webhook de revalidación (firma, reintentos) y exportación a Excel."""
+"""Exportación a Excel."""
 
-import hashlib
-import hmac
 import io
-import json
 import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
-import httpx
 from openpyxl import load_workbook
 
 from munych_api.modules.results.application.ports import (
@@ -24,67 +20,6 @@ from munych_api.modules.results.domain.models import (
     RankingEntry,
 )
 from munych_api.modules.results.infrastructure.excel_exporter import ExcelExporter
-from munych_api.modules.results.infrastructure.nextjs_revalidation import NextJsRevalidator, sign
-
-SECRET = "secreto-de-prueba"
-
-
-# ---------------------------------------------------------------- webhook
-
-
-async def test_revalidation_sends_signed_body() -> None:
-    requests: list[httpx.Request] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        requests.append(request)
-        return httpx.Response(200)
-
-    revalidator = NextJsRevalidator(
-        "http://sitio.test/", SECRET, transport=httpx.MockTransport(handler)
-    )
-    assert await revalidator.revalidate("sd-mun-2026") is True
-    (request,) = requests
-    assert str(request.url) == "http://sitio.test/api/revalidate"
-    assert json.loads(request.content) == {"event_slug": "sd-mun-2026"}
-    expected = hmac.new(SECRET.encode(), request.content, hashlib.sha256).hexdigest()
-    assert request.headers["X-Signature"] == f"sha256={expected}"
-    assert sign(request.content, SECRET) == f"sha256={expected}"
-
-
-async def test_revalidation_retries_twice_then_fails() -> None:
-    attempts = 0
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal attempts
-        attempts += 1
-        if attempts == 1:
-            raise httpx.ConnectError("sin red", request=request)
-        return httpx.Response(503)
-
-    revalidator = NextJsRevalidator(
-        "http://sitio.test", SECRET, transport=httpx.MockTransport(handler)
-    )
-    assert await revalidator.revalidate("x") is False
-    assert attempts == 3
-
-
-async def test_revalidation_recovers_on_retry() -> None:
-    responses = iter([httpx.Response(500), httpx.Response(204)])
-    revalidator = NextJsRevalidator(
-        "http://sitio.test", SECRET, transport=httpx.MockTransport(lambda _: next(responses))
-    )
-    assert await revalidator.revalidate("x") is True
-
-
-async def test_revalidation_without_secret_is_skipped() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
-        raise AssertionError("no debe llamar al sitio")
-
-    revalidator = NextJsRevalidator("http://sitio.test", "", transport=httpx.MockTransport(handler))
-    assert await revalidator.revalidate("x") is False
-
-
-# ---------------------------------------------------------------- Excel
 
 
 def test_excel_has_summary_committee_and_detail_sheets() -> None:

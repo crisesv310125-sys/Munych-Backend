@@ -36,8 +36,23 @@ Rellena `.env` con los valores locales que muestra `just db-status`:
 DATABASE_URL=postgresql+asyncpg://postgres:postgres@127.0.0.1:54322/postgres
 SUPABASE_URL=http://127.0.0.1:54321
 SUPABASE_SERVICE_ROLE_KEY=<service_role key de db-status>
-REVALIDATE_SECRET=<cualquier valor en local>
 ```
+
+### Actualización del sitio público (Cloudflare Pages)
+
+El sitio público es estático: cada publicación necesita un build nuevo. La migración
+`site_rebuild` lo agrupa en la base de datos: un trigger en `public_results` marca que hay
+cambios y `pg_cron` llama al deploy hook de Cloudflare Pages cuando llevan 45 s sin cambios
+(como máximo, 5 min después del primer cambio pendiente). Para activarlo, guarda la URL del
+hook en Vault una vez por proyecto (SQL Editor de Supabase):
+
+```sql
+select vault.create_secret('<URL del deploy hook>', 'pages_deploy_hook_url');
+```
+
+Sin ese secreto no se llama a nada y `publish`/`unpublish` responden `revalidated: false`.
+Para revisar el estado: `select * from app.site_rebuild;` y la respuesta de Cloudflare en
+`select * from net._http_response where id = (select last_request_id from app.site_rebuild);`.
 
 ### 3. Ejecutar
 
@@ -76,7 +91,7 @@ $body = '{"email":"admin@munych.dev","password":"munych-admin-dev"}'
   se **saltan** si el stack local no responde. Para usar otra base de datos:
   `$env:TEST_DATABASE_URL = "postgresql+asyncpg://..."`.
 - Las pruebas de API firman sus propios JWT con una clave RSA local y sustituyen Supabase
-  (invitaciones, Storage) y el webhook de revalidación por dobles.
+  (invitaciones, Storage) y la reconstrucción del sitio público por dobles.
 
 ## Estructura
 

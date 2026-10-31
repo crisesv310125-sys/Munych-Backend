@@ -20,7 +20,7 @@ MUNYCH necesita un sistema web para que los jueces califiquen a los delegados de
 | Acceso a datos | SQLAlchemy 2.0 async + asyncpg, a través de Supavisor en **modo sesión** |
 | Migraciones | Supabase CLI (`supabase/migrations/*.sql`), única fuente de verdad. **Sin Alembic** |
 | JWT | PyJWT con JWKS del proyecto; HS256 (`SUPABASE_JWT_SECRET`) como alternativa heredada |
-| Integraciones | supabase-py (`service_role`: invitaciones y Storage), httpx (webhook), openpyxl (Excel) |
+| Integraciones | supabase-py (`service_role`: invitaciones y Storage), pg_cron + pg_net (deploy hook del sitio público), openpyxl (Excel) |
 | Operación | slowapi (límite de peticiones), structlog, Sentry opcional |
 | Calidad | uv, Ruff, mypy estricto, import-linter, pytest + Hypothesis |
 
@@ -31,7 +31,7 @@ MUNYCH necesita un sistema web para que los jueces califiquen a los delegados de
   - Dominio puro.
   - Casos de uso en `application/`.
   - Puertos como `typing.Protocol`.
-  - Adaptadores (SQLAlchemy, Excel, webhook) en `infrastructure/`.
+  - Adaptadores (SQLAlchemy, Excel, reconstrucción del sitio) en `infrastructure/`.
   - Así se pueden probar con adaptadores en memoria.
 - **`scoring_engine/`**: funciones puras sobre `Decimal`, solo con la biblioteca estándar. El frontend reutilizará sus fixtures JSON en fase 2.
 - El cableado de dependencias se hace **solo** en `api/dependencies.py` con `Depends`.
@@ -88,7 +88,8 @@ Aspectos que la especificación dejaba abiertos y que el backend fija así:
 | Lecturas sin paginar | `GET /committees/{id}/sessions` y `GET /judge/sessions/{id}/scores` devuelven listas (son pequeñas y acotadas). |
 | Sesiones | Abrir una sesión abierta o cerrar una cerrada es idempotente. No se abren ni cierran sesiones de eventos cerrados (`EVENT_CLOSED`). |
 | Cierre | `POST /events/{id}/close` → `{ event_id, status: "closed", snapshot_id, closed_at }`. |
-| Publicación | Se publica la **última instantánea** con la configuración **actual** (se puede cambiar tras el cierre). La vista previa usa `version` = versión actual + 1. `unpublish` es idempotente. La publicación se confirma en la BD **antes** de llamar al webhook. |
+| Publicación | Se publica la **última instantánea** con la configuración **actual** (se puede cambiar tras el cierre). La vista previa usa `version` = versión actual + 1. `unpublish` es idempotente. La publicación se confirma en la BD **antes** de pedir el build del sitio. |
+| Sitio público (2026-10-31) | El sitio es un export estático en Cloudflare Pages, así que el webhook `/api/revalidate` desaparece (y con él `PUBLIC_SITE_URL` y `REVALIDATE_SECRET`). Un trigger en `public_results` marca el cambio y `pg_cron` (migración `site_rebuild`) llama al deploy hook tras 45 s sin cambios, o 5 min después del primer cambio pendiente: las publicaciones seguidas de la clausura salen en un solo build. Se hace en la BD porque en Vercel no hay tareas de fondo. `revalidated` sigue en el contrato y ahora indica si el hook está configurado en Vault (`pages_deploy_hook_url`). |
 | Códigos adicionales | `UNAUTHORIZED` (401), `FORBIDDEN` (403), `CONFLICT` (409), `RATE_LIMITED` (429) e `INTERNAL_ERROR` (500), además de los de la sección 7.3. |
 | Formato "Nombre I." | Primera palabra + inicial de la siguiente palabra que no sea partícula (`de`, `del`, `la`…): "Juan de la Cruz" → "Juan C.". |
 | Excel | Los textos que empiezan por `=`, `+`, `-` o `@` se escriben con un apóstrofo delante para evitar inyección de fórmulas. |

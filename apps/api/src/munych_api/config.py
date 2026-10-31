@@ -25,10 +25,8 @@ class Settings(BaseSettings):
     cors_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["http://localhost:5173", "http://localhost:3000"]
     )
-    public_site_url: str = "http://localhost:3000"
     # Panel (admin/jueces): destino de los enlaces de invitación de Supabase Auth.
     panel_url: str = "http://localhost:5173"
-    revalidate_secret: SecretStr = SecretStr("")
 
     sentry_dsn: str | None = None
 

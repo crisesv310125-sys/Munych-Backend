@@ -22,7 +22,6 @@ from munych_api.modules.events.router import router as events_router
 from munych_api.modules.identity.router import router as identity_router
 from munych_api.modules.judging.router import router as judging_router
 from munych_api.modules.results.api.router import router as results_router
-from munych_api.modules.results.infrastructure.nextjs_revalidation import NextJsRevalidator
 from munych_api.modules.rubrics.router import router as rubrics_router
 from munych_api.modules.scoring.api.router import router as scoring_router
 from munych_api.shared.auth import JwtVerifier, SupabaseKeyResolver
@@ -88,9 +87,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         issuer=settings.supabase_issuer, key_resolver=key_resolver
     )
     app.state.supabase = SupabaseAdmin(settings)
-    app.state.revalidator = NextJsRevalidator(
-        settings.public_site_url, settings.revalidate_secret.get_secret_value()
-    )
 
     limiter.enabled = settings.environment != "test"
     app.state.limiter = limiter

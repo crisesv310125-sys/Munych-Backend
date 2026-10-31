@@ -16,6 +16,7 @@ from munych_api.modules.results.infrastructure.adapters import (
     StoragePublicUrls,
 )
 from munych_api.modules.results.infrastructure.excel_exporter import ExcelExporter
+from munych_api.modules.results.infrastructure.pages_rebuild import PagesRebuildScheduler
 from munych_api.modules.results.infrastructure.sqlalchemy_results_repository import (
     SqlAlchemyResultsRepository,
 )
@@ -28,9 +29,8 @@ def get_clock() -> Clock:
     return SystemClock()
 
 
-def get_revalidator(request: Request) -> Revalidator:
-    revalidator: Revalidator = request.app.state.revalidator
-    return revalidator
+def get_revalidator(session: DbSession) -> Revalidator:
+    return PagesRebuildScheduler(session)
 
 
 def get_storage(request: Request) -> ObjectStorage:

@@ -115,7 +115,7 @@ class ResultsRepository(Protocol):
 
 class Revalidator(Protocol):
     async def revalidate(self, event_slug: str) -> bool:
-        """Avisa al sitio público. Devuelve False si falla (no lanza)."""
+        """Pide que el sitio público se actualice. Devuelve False si no se podrá (no lanza)."""
         ...
 
 
