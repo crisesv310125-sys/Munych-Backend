@@ -50,4 +50,5 @@ Backend del sistema de calificaciones para Modelos de Naciones Unidas (cliente: 
 - **Fechas**: `timestamptz` en UTC; la zona horaria del evento solo se usa para presentar (Excel).
 - **Preguntas abiertas del cliente**: usa el valor por defecto de la sección 12 y márcalo con `# TODO(cliente): confirmar <tema>`.
 - **Commits**: conventional commits (`feat(scoring): ...`), uno por hito como mínimo, después de `just check`.
-- **Fuera de alcance** (no implementar): Realtime, PDF, z-score, premios sugeridos, mejor delegación, MFA obligatorio, inscripciones, pagos, oradores, votaciones y portal de delegados.
+- **Tipos de evento**: `app.events.event_type` (`judges_only` | `voting`). Los roles que votan y su peso se configuran en `EVENT_TYPES` (`shared/kernel/catalog.py`); un tipo nuevo se añade ahí y en el CHECK de la columna (`tests/unit/test_event_types.py` comprueba que coincidan). La votación de delegados y staff está en diseño (spec del 2026-11-03).
+- **Fuera de alcance** (no implementar): Realtime, PDF, z-score, premios sugeridos, mejor delegación, MFA obligatorio, inscripciones, pagos y oradores.

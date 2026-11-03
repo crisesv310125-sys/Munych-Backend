@@ -104,9 +104,27 @@ class EventsService:
         event = await self._require_event(organization_id, event_id)
         _ensure_not_closed(event["status"])
         values = data.model_dump(exclude_unset=True)
-        for required in ("slug", "name", "brand", "timezone", "starts_on", "ends_on", "status"):
+        for required in (
+            "slug",
+            "name",
+            "brand",
+            "event_type",
+            "timezone",
+            "starts_on",
+            "ends_on",
+            "status",
+        ):
             if required in values and values[required] is None:
                 raise DomainError(ErrorCode.VALIDATION_ERROR, f"El campo {required} es obligatorio")
+        # El tipo decide quién vota; cambiarlo con el evento en marcha mezclaría votos
+        # de flujos distintos.
+        if values.get("event_type", event["event_type"]) != event["event_type"] and (
+            event["status"] != "draft"
+        ):
+            raise DomainError(
+                ErrorCode.CONFLICT,
+                "El tipo de evento solo se puede cambiar mientras el evento está en borrador",
+            )
 
         starts_on = values.get("starts_on", event["starts_on"])
         ends_on = values.get("ends_on", event["ends_on"])

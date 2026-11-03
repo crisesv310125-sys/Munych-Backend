@@ -90,6 +90,7 @@ events = Table(
     Column("starts_on", Date, nullable=False),
     Column("ends_on", Date, nullable=False),
     Column("status", Text, nullable=False, server_default="draft"),
+    Column("event_type", Text, nullable=False, server_default="judges_only"),
     Column("default_rubric_id", UUID(as_uuid=True)),
     Column("publication_settings", JSONB, nullable=False),
     *_timestamps(),

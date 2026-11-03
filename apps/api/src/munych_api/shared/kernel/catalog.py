@@ -1,10 +1,45 @@
 """Catálogos y valores por defecto de negocio (secciones 5, 6.1 y 6.4)."""
 
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import Literal
 
 Brand = Literal["munych", "grand_international"]
 EventStatus = Literal["draft", "active", "closed"]
+EventType = Literal["judges_only", "voting"]
+VoterRole = Literal["judge", "staff", "delegate"]
+
+
+@dataclass(frozen=True, slots=True)
+class EventTypeConfig:
+    """Qué roles votan en un tipo de evento y cuánto pesa cada uno.
+
+    Un tipo nuevo se añade aquí (y en el CHECK de `app.events.event_type`), sin
+    programar un flujo aparte.
+    """
+
+    label: str
+    voter_weights: dict[VoterRole, Decimal]
+
+    @property
+    def voter_roles(self) -> tuple[VoterRole, ...]:
+        return tuple(self.voter_weights)
+
+
+DEFAULT_EVENT_TYPE: EventType = "judges_only"
+
+# TODO(cliente): confirmar si el promedio de `voting` es por voto (cada voto vale
+# igual) o por grupo (un tercio cada rol). Por ahora, mismo peso por grupo.
+EVENT_TYPES: dict[EventType, EventTypeConfig] = {
+    "judges_only": EventTypeConfig(
+        label="Solo jueces",
+        voter_weights={"judge": Decimal(1)},
+    ),
+    "voting": EventTypeConfig(
+        label="Votación (delegados, staff y jueces)",
+        voter_weights={"delegate": Decimal(1), "staff": Decimal(1), "judge": Decimal(1)},
+    ),
+}
 CommitteeType = Literal["general_assembly", "security_council", "crisis", "specialized"]
 DelegationMode = Literal["single", "double"]
 JudgeRole = Literal["chair", "moderator", "judge"]

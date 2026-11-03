@@ -6,11 +6,13 @@ from zoneinfo import available_timezones
 from pydantic import AfterValidator, BaseModel, Field, NonNegativeInt, model_validator
 
 from munych_api.shared.kernel.catalog import (
+    DEFAULT_EVENT_TYPE,
     AwardType,
     Brand,
     CommitteeType,
     DelegationMode,
     EventStatus,
+    EventType,
 )
 
 SLUG_PATTERN = r"^[a-z0-9]+(-[a-z0-9]+)*$"
@@ -40,6 +42,10 @@ class EventCreate(BaseModel):
     slug: Slug
     name: Name
     brand: Brand
+    event_type: EventType = Field(
+        default=DEFAULT_EVENT_TYPE,
+        description="judges_only: solo jueces. voting: votan delegados, staff y jueces",
+    )
     venue: OptionalText = None
     country_code: CountryCode | None = None
     timezone: Timezone
@@ -57,6 +63,9 @@ class EventUpdate(BaseModel):
     slug: Slug | None = None
     name: Name | None = None
     brand: Brand | None = None
+    event_type: EventType | None = Field(
+        default=None, description="Solo se puede cambiar mientras el evento está en borrador"
+    )
     venue: OptionalText = None
     country_code: CountryCode | None = None
     timezone: Timezone | None = None
@@ -73,6 +82,7 @@ class EventOut(BaseModel):
     slug: str
     name: str
     brand: Brand
+    event_type: EventType
     logo_url: str | None
     venue: str | None
     country_code: str | None

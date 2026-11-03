@@ -113,6 +113,39 @@ async def test_list_update_and_delete_event(client: AsyncClient) -> None:
     assert (await client.get(f"{API}/events/{event['id']}", headers=ADMIN)).status_code == 404
 
 
+async def test_event_type_defaults_and_rules(client: AsyncClient) -> None:
+    default = await _create_event(client)
+    assert default["event_type"] == "judges_only"
+
+    voting = await _create_event(client, event_type="voting")
+    assert voting["event_type"] == "voting"
+
+    unknown = await client.post(
+        f"{API}/events",
+        headers=ADMIN,
+        json={
+            **{k: default[k] for k in ("name", "brand", "timezone", "starts_on", "ends_on")},
+            "slug": _slug(),
+            "event_type": "delegados_libres",
+        },
+    )
+    assert unknown.status_code == 422
+
+    url = f"{API}/events/{default['id']}"
+    changed = await client.patch(url, headers=ADMIN, json={"event_type": "voting"})
+    assert changed.status_code == 200
+    assert changed.json()["event_type"] == "voting"
+
+    assert (await client.patch(url, headers=ADMIN, json={"event_type": None})).status_code == 422
+
+    await client.patch(url, headers=ADMIN, json={"status": "active"})
+    locked = await client.patch(url, headers=ADMIN, json={"event_type": "judges_only"})
+    assert locked.status_code == 409
+    # Reenviar el mismo tipo no es un cambio.
+    same = await client.patch(url, headers=ADMIN, json={"event_type": "voting"})
+    assert same.status_code == 200
+
+
 async def test_judge_cannot_use_admin_endpoints(client: AsyncClient) -> None:
     response = await client.get(f"{API}/events", headers=JUDGE_1)
     assert response.status_code == 403
