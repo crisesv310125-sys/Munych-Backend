@@ -24,6 +24,7 @@ from munych_api.modules.judging.router import router as judging_router
 from munych_api.modules.results.api.router import router as results_router
 from munych_api.modules.rubrics.router import router as rubrics_router
 from munych_api.modules.scoring.api.router import router as scoring_router
+from munych_api.modules.voting.router import router as voting_router
 from munych_api.shared.auth import JwtVerifier, SupabaseKeyResolver
 from munych_api.shared.database import Database
 from munych_api.shared.errors import register_error_handlers
@@ -111,6 +112,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api.include_router(judging_router)
     api.include_router(scoring_router)
     api.include_router(results_router)
+    api.include_router(voting_router)
     app.include_router(api)
     return app
 

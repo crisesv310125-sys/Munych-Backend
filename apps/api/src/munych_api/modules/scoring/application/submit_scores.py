@@ -46,7 +46,7 @@ class SubmitScores:
         """
         result = BatchResult()
         contexts: dict[UUID, SessionContext | None] = {}
-        assignments: dict[tuple[UUID, UUID], bool] = {}
+        roles: dict[tuple[UUID, UUID], str | None] = {}
         now = self._clock.now()
 
         for raw in items:
@@ -56,14 +56,14 @@ class SubmitScores:
             if item.session_id not in contexts:
                 contexts[item.session_id] = await self._repo.session_context(item.session_id)
             context = contexts[item.session_id]
-            assigned = False
+            role: str | None = None
             if context is not None:
                 key = (item.judge_id, context.session.committee_id)
-                if key not in assignments:
-                    assignments[key] = await self._repo.is_assigned(*key)
-                assigned = assignments[key]
+                if key not in roles:
+                    roles[key] = await self._repo.assignment_role(*key)
+                role = roles[key]
 
-            rejection = validate_submission(item, context, assigned)
+            rejection = validate_submission(item, context, role)
             if rejection is None:
                 rejection = await self._apply(item)
             if rejection is None:

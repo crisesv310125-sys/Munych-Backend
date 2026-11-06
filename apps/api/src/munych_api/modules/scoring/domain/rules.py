@@ -5,6 +5,7 @@ from enum import StrEnum
 
 from munych_api.modules.scoring.domain.models import Score, ScoreSubmission, SessionContext
 from munych_api.shared.kernel import ErrorCode
+from munych_api.shared.kernel.catalog import EVENT_TYPES
 
 
 @dataclass(frozen=True, slots=True)
@@ -14,13 +15,21 @@ class Rejection:
 
 
 def validate_submission(  # noqa: PLR0911 — una regla por cláusula de guarda
-    item: ScoreSubmission, context: SessionContext | None, judge_assigned: bool
+    item: ScoreSubmission, context: SessionContext | None, committee_role: str | None
 ) -> Rejection | None:
-    """Valida un ítem por separado; un ítem inválido no invalida el resto del lote."""
+    """Valida un ítem por separado; un ítem inválido no invalida el resto del lote.
+
+    `committee_role` es el rol de la cuenta en el comité (`None`: no asignada).
+    """
     if context is None:
         return Rejection(ErrorCode.NOT_FOUND, "La sesión no existe")
-    if not judge_assigned:
+    if committee_role is None:
         return Rejection(ErrorCode.JUDGE_NOT_ASSIGNED, "No estás asignado a este comité")
+    if EVENT_TYPES[context.event_type].account_voter_role(committee_role) is None:
+        return Rejection(
+            ErrorCode.FORBIDDEN,
+            f"Tu rol en este comité ({committee_role}) no califica en este tipo de evento",
+        )
     if context.event_closed:
         return Rejection(ErrorCode.EVENT_CLOSED, "El evento está cerrado")
     if not context.session.is_open:

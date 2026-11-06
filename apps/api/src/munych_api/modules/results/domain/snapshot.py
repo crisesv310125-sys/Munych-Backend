@@ -49,6 +49,7 @@ def ranking_entry_to_dict(entry: RankingEntry) -> dict[str, Any]:
         ],
         "score": presented(entry.score),
         "criteria_averages": {str(k): presented(v) for k, v in entry.criteria_averages.items()},
+        "role_scores": {role: presented(v) for role, v in entry.role_scores.items()},
         "incomplete_flags": [
             {
                 "kind": f.kind,

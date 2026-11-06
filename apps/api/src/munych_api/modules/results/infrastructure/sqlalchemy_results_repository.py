@@ -17,6 +17,7 @@ from munych_api.modules.results.domain.models import (
     DelegateInfo,
     DelegationInfo,
     EventInfo,
+    PeerVoteValue,
     PublicationSettings,
     RubricInfo,
     ScoreValue,
@@ -24,8 +25,10 @@ from munych_api.modules.results.domain.models import (
 )
 from munych_api.shared.database.tables import (
     awards,
+    committee_judges,
     committees,
     criteria,
+    delegate_votes,
     delegates,
     delegations,
     events,
@@ -52,6 +55,7 @@ class SqlAlchemyResultsRepository:
                 select(
                     committees,
                     events.c.status.label("event_status"),
+                    events.c.event_type,
                     func.coalesce(committees.c.rubric_id, events.c.default_rubric_id).label(
                         "effective_rubric_id"
                     ),
@@ -115,8 +119,25 @@ class SqlAlchemyResultsRepository:
                 scores.c.session_id,
                 scores.c.criterion_id,
                 scores.c.value,
+                committee_judges.c.role.label("committee_role"),
             )
             .join(scoring_sessions, scoring_sessions.c.id == scores.c.session_id)
+            .outerjoin(
+                committee_judges,
+                (committee_judges.c.committee_id == scoring_sessions.c.committee_id)
+                & (committee_judges.c.judge_id == scores.c.judge_id),
+            )
+            .where(scoring_sessions.c.committee_id == committee_id)
+        )
+        vote_rows = await self._session.execute(
+            select(
+                delegate_votes.c.voter_delegate_id,
+                delegate_votes.c.delegation_id,
+                delegate_votes.c.session_id,
+                delegate_votes.c.criterion_id,
+                delegate_votes.c.value,
+            )
+            .join(scoring_sessions, scoring_sessions.c.id == delegate_votes.c.session_id)
             .where(scoring_sessions.c.committee_id == committee_id)
         )
 
@@ -144,8 +165,22 @@ class SqlAlchemyResultsRepository:
                 for d in delegation_rows
             ),
             scores=tuple(
-                ScoreValue(s.judge_id, s.delegate_id, s.session_id, s.criterion_id, s.value)
+                ScoreValue(
+                    s.judge_id,
+                    s.delegate_id,
+                    s.session_id,
+                    s.criterion_id,
+                    s.value,
+                    s.committee_role,
+                )
                 for s in score_rows
+            ),
+            event_type=row.event_type,
+            peer_votes=tuple(
+                PeerVoteValue(
+                    v.voter_delegate_id, v.delegation_id, v.session_id, v.criterion_id, v.value
+                )
+                for v in vote_rows
             ),
         )
 

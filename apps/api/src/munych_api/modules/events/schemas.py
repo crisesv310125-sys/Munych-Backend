@@ -44,7 +44,10 @@ class EventCreate(BaseModel):
     brand: Brand
     event_type: EventType = Field(
         default=DEFAULT_EVENT_TYPE,
-        description="judges_only: solo jueces. voting: votan delegados, staff y jueces",
+        description=(
+            "judges_only: solo jueces. mun_regular: mesa 30 %, delegados 50 %, staff 20 %. "
+            "national_championship: jueces 50 %, mesa 15 %, delegados 25 %, staff 10 %"
+        ),
     )
     venue: OptionalText = None
     country_code: CountryCode | None = None

@@ -56,6 +56,12 @@ EXPECTED_OPERATIONS = {
     ("GET", "/api/v1/judge/committees/{committee_id}"): "get_judge_committee",
     ("GET", "/api/v1/judge/sessions/{session_id}/scores"): "list_my_session_scores",
     ("POST", "/api/v1/judge/scores/batch"): "submit_scores_batch",
+    # Votación de delegados (ADR-005, 2026-11-05).
+    ("GET", "/api/v1/events/{event_id}/voter-tokens"): "list_voter_tokens",
+    ("POST", "/api/v1/events/{event_id}/voter-tokens"): "generate_voter_tokens",
+    ("POST", "/api/v1/events/{event_id}/voter-tokens/revoke"): "revoke_voter_tokens",
+    ("GET", "/api/v1/vote/ballot"): "get_ballot",
+    ("PUT", "/api/v1/vote/ballot"): "submit_votes",
 }
 
 

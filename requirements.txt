@@ -113,6 +113,8 @@ pyyaml==6.0.3
     # via uvicorn
 realtime==2.31.0
     # via supabase
+segno==1.6.6
+    # via munych-api
 sentry-sdk==2.71.0
     # via munych-api
 slowapi==0.1.10

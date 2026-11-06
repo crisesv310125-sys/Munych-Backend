@@ -6,16 +6,28 @@ from typing import Literal
 
 Brand = Literal["munych", "grand_international"]
 EventStatus = Literal["draft", "active", "closed"]
-EventType = Literal["judges_only", "voting"]
-VoterRole = Literal["judge", "staff", "delegate"]
+EventType = Literal["judges_only", "mun_regular", "national_championship"]
+VoterRole = Literal["judge", "chair", "staff", "delegate"]
+"""Grupo que vota. `chair` es la Mesa Directiva (presidente, moderador...)."""
+
+JudgeRole = Literal["chair", "moderator", "judge", "staff"]
+"""Rol de una cuenta (juez, mesa o staff) dentro de un comité (`committee_judges.role`)."""
+
+VOTER_ROLE_LABELS: dict[VoterRole, str] = {
+    "judge": "Jueces",
+    "chair": "Mesa Directiva",
+    "staff": "Staff",
+    "delegate": "Delegados",
+}
 
 
 @dataclass(frozen=True, slots=True)
 class EventTypeConfig:
-    """Qué roles votan en un tipo de evento y cuánto pesa cada uno.
+    """Qué roles votan en un tipo de evento y cuánto pesa cada uno (suman 100).
 
     Un tipo nuevo se añade aquí (y en el CHECK de `app.events.event_type`), sin
-    programar un flujo aparte.
+    programar un flujo aparte. El resultado de una delegación es la suma ponderada
+    del promedio de cada rol (spec del 2026-11-05).
     """
 
     label: str
@@ -25,24 +37,55 @@ class EventTypeConfig:
     def voter_roles(self) -> tuple[VoterRole, ...]:
         return tuple(self.voter_weights)
 
+    @property
+    def splits_judges(self) -> bool:
+        """Si la mesa cuenta como un grupo aparte de los jueces.
+
+        En `judges_only` todas las cuentas asignadas al comité (mesa incluida)
+        califican como un solo grupo, igual que antes de los tipos de evento.
+        """
+        return len(self.voter_weights) > 1
+
+    def account_voter_role(self, committee_role: str | None) -> VoterRole | None:
+        """Grupo en el que cuenta una cuenta según su rol en el comité.
+
+        Devuelve `None` si ese grupo no vota en este tipo de evento.
+        """
+        if not self.splits_judges:
+            role: VoterRole = "judge"
+        elif committee_role in ("chair", "moderator"):
+            role = "chair"
+        elif committee_role == "staff":
+            role = "staff"
+        else:
+            role = "judge"
+        return role if role in self.voter_weights else None
+
 
 DEFAULT_EVENT_TYPE: EventType = "judges_only"
 
-# TODO(cliente): confirmar si el promedio de `voting` es por voto (cada voto vale
-# igual) o por grupo (un tercio cada rol). Por ahora, mismo peso por grupo.
+# TODO(cliente): confirmar con Héctor que SD-MUN-2026 es un MUN regular.
 EVENT_TYPES: dict[EventType, EventTypeConfig] = {
     "judges_only": EventTypeConfig(
         label="Solo jueces",
-        voter_weights={"judge": Decimal(1)},
+        voter_weights={"judge": Decimal(100)},
     ),
-    "voting": EventTypeConfig(
-        label="Votación (delegados, staff y jueces)",
-        voter_weights={"delegate": Decimal(1), "staff": Decimal(1), "judge": Decimal(1)},
+    "mun_regular": EventTypeConfig(
+        label="MUN regular (mesa, delegados y staff)",
+        voter_weights={"chair": Decimal(30), "delegate": Decimal(50), "staff": Decimal(20)},
+    ),
+    "national_championship": EventTypeConfig(
+        label="Campeonato Nacional MUNer (jueces, mesa, delegados y staff)",
+        voter_weights={
+            "judge": Decimal(50),
+            "chair": Decimal(15),
+            "delegate": Decimal(25),
+            "staff": Decimal(10),
+        },
     ),
 }
 CommitteeType = Literal["general_assembly", "security_council", "crisis", "specialized"]
 DelegationMode = Literal["single", "double"]
-JudgeRole = Literal["chair", "moderator", "judge"]
 SessionStatus = Literal["open", "closed"]
 AwardType = Literal[
     "best_delegate", "outstanding_delegate", "honorable_mention", "verbal_commendation"

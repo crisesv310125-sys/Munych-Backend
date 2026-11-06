@@ -83,7 +83,7 @@ class SqlAlchemyScoringRepository:
     async def session_context(self, session_id: UUID) -> SessionContext | None:
         row = (
             await self._session.execute(
-                select(scoring_sessions, events.c.status.label("event_status"))
+                select(scoring_sessions, events.c.status.label("event_status"), events.c.event_type)
                 .join(committees, committees.c.id == scoring_sessions.c.committee_id)
                 .join(events, events.c.id == committees.c.event_id)
                 .where(scoring_sessions.c.id == session_id)
@@ -109,6 +109,7 @@ class SqlAlchemyScoringRepository:
             scale_max=scale.scale_max if scale else 0,
             criterion_ids=frozenset(r[0] for r in criterion_rows),
             delegate_ids=delegate_ids,
+            event_type=row.event_type,
         )
 
     async def is_assigned(self, judge_id: UUID, committee_id: UUID) -> bool:
@@ -124,6 +125,18 @@ class SqlAlchemyScoringRepository:
                 )
             )
         )
+
+    async def assignment_role(self, judge_id: UUID, committee_id: UUID) -> str | None:
+        role = await self._session.scalar(
+            select(committee_judges.c.role)
+            .join(judges, judges.c.user_id == committee_judges.c.judge_id)
+            .where(
+                committee_judges.c.committee_id == committee_id,
+                committee_judges.c.judge_id == judge_id,
+                judges.c.active.is_(True),
+            )
+        )
+        return None if role is None else str(role)
 
     async def get_by_client_id(self, client_id: UUID) -> Score | None:
         row = (

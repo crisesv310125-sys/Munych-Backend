@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-from munych_api.shared.kernel.catalog import SessionStatus
+from munych_api.shared.kernel.catalog import DEFAULT_EVENT_TYPE, EventType, SessionStatus
 
 # (judge_id, delegate_id, session_id, criterion_id): una calificación por celda.
 ScoreKey = tuple[UUID, UUID, UUID, UUID]
@@ -80,3 +80,4 @@ class SessionContext:
     scale_max: int
     criterion_ids: frozenset[UUID]
     delegate_ids: frozenset[UUID]
+    event_type: EventType = DEFAULT_EVENT_TYPE

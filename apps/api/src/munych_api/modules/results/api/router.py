@@ -28,6 +28,7 @@ from munych_api.modules.results.domain.models import Award, PublicationSettings,
 from munych_api.modules.results.domain.snapshot import presented
 from munych_api.modules.results.infrastructure.excel_exporter import XLSX_MEDIA_TYPE
 from munych_api.shared.auth import AdminUser, OrganizationId
+from munych_api.shared.kernel.catalog import EVENT_TYPES
 
 router = APIRouter(tags=["results"])
 
@@ -51,6 +52,7 @@ def _entry_out(entry: RankingEntry) -> RankingEntryOut:
         ],
         score=presented(entry.score),
         criteria_averages={str(k): presented(v) for k, v in entry.criteria_averages.items()},
+        role_scores={role: presented(v) for role, v in entry.role_scores.items()},
         incomplete_flags=[
             IncompleteFlagOut(
                 kind=f.kind,
@@ -87,7 +89,13 @@ async def get_committee_ranking(
     """Ranking calculado con el motor puro + avisos de cupos de premios."""
     ranking = await use_case.execute(organization_id, committee_id)
     return RankingOut(
-        items=[_entry_out(e) for e in ranking.items], quota_warnings=ranking.quota_warnings
+        items=[_entry_out(e) for e in ranking.items],
+        quota_warnings=ranking.quota_warnings,
+        event_type=ranking.event_type,
+        role_weights={
+            role: float(weight)
+            for role, weight in EVENT_TYPES[ranking.event_type].voter_weights.items()
+        },
     )
 
 

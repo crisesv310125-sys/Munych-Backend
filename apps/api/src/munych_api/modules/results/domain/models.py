@@ -7,7 +7,13 @@ from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
-from munych_api.shared.kernel.catalog import AwardType, CommitteeType
+from munych_api.shared.kernel.catalog import (
+    DEFAULT_EVENT_TYPE,
+    AwardType,
+    CommitteeType,
+    EventType,
+    VoterRole,
+)
 
 NameFormat = Literal["full", "first_name_initial", "hidden"]
 
@@ -54,8 +60,23 @@ class SessionInfo:
 
 @dataclass(frozen=True, slots=True)
 class ScoreValue:
+    """Calificación de una cuenta (juez, mesa o staff) a un delegado."""
+
     judge_id: UUID
     delegate_id: UUID
+    session_id: UUID
+    criterion_id: UUID
+    value: int
+    committee_role: str | None = None
+    """Rol de la cuenta en el comité (`chair`, `moderator`, `judge`, `staff`), si sigue asignada."""
+
+
+@dataclass(frozen=True, slots=True)
+class PeerVoteValue:
+    """Voto de un delegado a otra delegación de su comité."""
+
+    voter_delegate_id: UUID
+    delegation_id: UUID
     session_id: UUID
     criterion_id: UUID
     value: int
@@ -82,6 +103,8 @@ class CommitteeData:
     sessions: tuple[SessionInfo, ...]
     delegations: tuple[DelegationInfo, ...]
     scores: tuple[ScoreValue, ...]
+    event_type: EventType = DEFAULT_EVENT_TYPE
+    peer_votes: tuple[PeerVoteValue, ...] = ()
 
 
 # ---------------------------------------------------------------- ranking
@@ -111,6 +134,8 @@ class RankingEntry:
     score: Decimal | None
     criteria_averages: dict[UUID, Decimal | None]
     incomplete_flags: tuple[IncompleteFlag, ...] = ()
+    role_scores: dict[VoterRole, Decimal | None] = field(default_factory=dict)
+    """Nota por rol que vota; `None` si nadie de ese rol calificó (su peso se reparte)."""
 
 
 # ---------------------------------------------------------------- premios

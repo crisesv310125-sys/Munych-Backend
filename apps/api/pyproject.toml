@@ -22,6 +22,7 @@ dependencies = [
     "structlog>=24.4",
     "sentry-sdk[fastapi]>=2.18",
     "tzdata>=2024.2",
+    "segno>=1.6",
 ]
 
 [dependency-groups]
@@ -80,7 +81,7 @@ plugins = ["pydantic.mypy"]
 warn_unreachable = true
 
 [[tool.mypy.overrides]]
-module = ["slowapi.*", "asyncpg.*", "gotrue.*", "supabase.*", "storage3.*"]
+module = ["slowapi.*", "asyncpg.*", "gotrue.*", "supabase.*", "storage3.*", "segno.*"]
 ignore_missing_imports = true
 
 [tool.pydantic-mypy]
@@ -152,36 +153,43 @@ allow_indirect_imports = true
 [[tool.importlinter.contracts]]
 name = "Repositorios privados: identity"
 type = "forbidden"
-source_modules = ["munych_api.modules.events", "munych_api.modules.judging", "munych_api.modules.rubrics", "munych_api.modules.audit", "munych_api.modules.scoring", "munych_api.modules.results"]
+source_modules = ["munych_api.modules.events", "munych_api.modules.judging", "munych_api.modules.rubrics", "munych_api.modules.audit", "munych_api.modules.scoring", "munych_api.modules.results", "munych_api.modules.voting"]
 forbidden_modules = ["munych_api.modules.identity.repository"]
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
 name = "Repositorios privados: events"
 type = "forbidden"
-source_modules = ["munych_api.modules.identity", "munych_api.modules.judging", "munych_api.modules.rubrics", "munych_api.modules.audit", "munych_api.modules.scoring", "munych_api.modules.results"]
+source_modules = ["munych_api.modules.identity", "munych_api.modules.judging", "munych_api.modules.rubrics", "munych_api.modules.audit", "munych_api.modules.scoring", "munych_api.modules.results", "munych_api.modules.voting"]
 forbidden_modules = ["munych_api.modules.events.repository"]
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
 name = "Repositorios privados: judging"
 type = "forbidden"
-source_modules = ["munych_api.modules.identity", "munych_api.modules.events", "munych_api.modules.rubrics", "munych_api.modules.audit", "munych_api.modules.scoring", "munych_api.modules.results"]
+source_modules = ["munych_api.modules.identity", "munych_api.modules.events", "munych_api.modules.rubrics", "munych_api.modules.audit", "munych_api.modules.scoring", "munych_api.modules.results", "munych_api.modules.voting"]
 forbidden_modules = ["munych_api.modules.judging.repository"]
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
 name = "Repositorios privados: rubrics"
 type = "forbidden"
-source_modules = ["munych_api.modules.identity", "munych_api.modules.events", "munych_api.modules.judging", "munych_api.modules.audit", "munych_api.modules.scoring", "munych_api.modules.results"]
+source_modules = ["munych_api.modules.identity", "munych_api.modules.events", "munych_api.modules.judging", "munych_api.modules.audit", "munych_api.modules.scoring", "munych_api.modules.results", "munych_api.modules.voting"]
 forbidden_modules = ["munych_api.modules.rubrics.repository"]
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
 name = "Repositorios privados: audit"
 type = "forbidden"
-source_modules = ["munych_api.modules.identity", "munych_api.modules.events", "munych_api.modules.judging", "munych_api.modules.rubrics", "munych_api.modules.scoring", "munych_api.modules.results"]
+source_modules = ["munych_api.modules.identity", "munych_api.modules.events", "munych_api.modules.judging", "munych_api.modules.rubrics", "munych_api.modules.scoring", "munych_api.modules.results", "munych_api.modules.voting"]
 forbidden_modules = ["munych_api.modules.audit.repository"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Repositorios privados: voting"
+type = "forbidden"
+source_modules = ["munych_api.modules.identity", "munych_api.modules.events", "munych_api.modules.judging", "munych_api.modules.rubrics", "munych_api.modules.audit", "munych_api.modules.scoring", "munych_api.modules.results"]
+forbidden_modules = ["munych_api.modules.voting.repository"]
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]

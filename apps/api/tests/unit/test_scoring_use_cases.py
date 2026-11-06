@@ -25,6 +25,7 @@ from munych_api.modules.scoring.domain.models import (
     SessionContext,
 )
 from munych_api.shared.kernel import DomainError, ErrorCode
+from munych_api.shared.kernel.catalog import EventType
 
 NOW = datetime(2026, 10, 10, 15, 0, tzinfo=UTC)
 ORG = uuid.uuid4()
@@ -50,6 +51,8 @@ class InMemoryScoringRepository:
         self.assigned: set[tuple[UUID, UUID]] = {(JUDGE, COMMITTEE), (OTHER_JUDGE, COMMITTEE)}
         self.event_closed = False
         self.fail_next_write = False
+        self.event_type: EventType = "judges_only"
+        self.committee_role = "judge"
 
     def add_session(self, number: int, status: str = "open") -> ScoringSession:
         session = ScoringSession(uuid.uuid4(), COMMITTEE, number, status, None, None)  # type: ignore[arg-type]
@@ -67,10 +70,14 @@ class InMemoryScoringRepository:
             scale_max=4,
             criterion_ids=frozenset(CRITERIA),
             delegate_ids=frozenset({DELEGATE}),
+            event_type=self.event_type,
         )
 
     async def is_assigned(self, judge_id: UUID, committee_id: UUID) -> bool:
         return (judge_id, committee_id) in self.assigned
+
+    async def assignment_role(self, judge_id: UUID, committee_id: UUID) -> str | None:
+        return self.committee_role if (judge_id, committee_id) in self.assigned else None
 
     async def get_by_client_id(self, client_id: UUID) -> Score | None:
         return next((s for s in self.scores.values() if s.client_id == client_id), None)
@@ -232,6 +239,32 @@ async def test_judge_not_assigned(submit: SubmitScores, repo: InMemoryScoringRep
     result = await submit.execute([item(session, judge_id=uuid.uuid4())])
     assert result.rejected[0].code == ErrorCode.JUDGE_NOT_ASSIGNED
     assert repo.scores == {}
+
+
+@pytest.mark.parametrize(
+    ("event_type", "committee_role", "accepted"),
+    [
+        ("judges_only", "judge", True),
+        ("judges_only", "chair", True),
+        ("mun_regular", "judge", False),  # en un MUN regular no hay jueces
+        ("mun_regular", "chair", True),
+        ("mun_regular", "staff", True),
+        ("national_championship", "judge", True),
+    ],
+)
+async def test_role_must_vote_in_event_type(
+    submit: SubmitScores,
+    repo: InMemoryScoringRepository,
+    event_type: EventType,
+    committee_role: str,
+    accepted: bool,
+) -> None:
+    repo.event_type = event_type
+    repo.committee_role = committee_role
+    result = await submit.execute([item(repo.add_session(1))])
+    assert bool(result.accepted) is accepted
+    if not accepted:
+        assert result.rejected[0].code == ErrorCode.FORBIDDEN
 
 
 @pytest.mark.parametrize("value", [0, 5, -1])

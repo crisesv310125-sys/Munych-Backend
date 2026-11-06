@@ -18,6 +18,11 @@ from munych_api.scoring_engine.models import (
     present,
 )
 from munych_api.scoring_engine.ranking import criteria_averages, rank_delegations
+from munych_api.scoring_engine.roles import (
+    RoleScores,
+    rank_delegations_by_role,
+    weighted_combination,
+)
 from munych_api.scoring_engine.session_score import weighted_score
 from munych_api.scoring_engine.weights import InvalidWeightsError, validate_weights
 
@@ -29,12 +34,15 @@ __all__ = [
     "FlagKind",
     "InvalidWeightsError",
     "RankingRow",
+    "RoleScores",
     "Rubric",
     "ScoreEntry",
     "criteria_averages",
     "delegate_results",
     "present",
     "rank_delegations",
+    "rank_delegations_by_role",
     "validate_weights",
+    "weighted_combination",
     "weighted_score",
 ]

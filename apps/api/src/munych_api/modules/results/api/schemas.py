@@ -4,7 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from munych_api.modules.results.domain.models import NameFormat
-from munych_api.shared.kernel.catalog import AwardType, CommitteeType
+from munych_api.shared.kernel.catalog import AwardType, CommitteeType, EventType, VoterRole
 
 # ---------------------------------------------------------------- ranking
 
@@ -33,11 +33,19 @@ class RankingEntryOut(BaseModel):
     score: float | None
     criteria_averages: dict[str, float | None]
     incomplete_flags: list[IncompleteFlagOut]
+    role_scores: dict[VoterRole, float | None] = Field(
+        description="Nota (0-100) de la delegación por rol que vota. null: nadie de ese rol "
+        "calificó y su peso se reparte entre los demás roles"
+    )
 
 
 class RankingOut(BaseModel):
     items: list[RankingEntryOut]
     quota_warnings: list[str]
+    event_type: EventType
+    role_weights: dict[VoterRole, float] = Field(
+        description="Peso (%) de cada rol en la nota final según el tipo de evento"
+    )
 
 
 # ---------------------------------------------------------------- premios

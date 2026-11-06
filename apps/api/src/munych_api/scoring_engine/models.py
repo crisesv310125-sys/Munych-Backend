@@ -98,3 +98,5 @@ class RankingRow:
     delegates: tuple[DelegateResult, ...]
     criteria_averages: dict[str, Decimal | None] = field(default_factory=dict)
     flags: tuple[Flag, ...] = ()
+    role_scores: dict[str, Decimal | None] = field(default_factory=dict)
+    """Nota de la delegación por rol que vota (vacío en `rank_delegations`)."""

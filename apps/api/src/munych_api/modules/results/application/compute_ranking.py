@@ -8,12 +8,14 @@ from munych_api.modules.results.domain.awards import quota_warnings
 from munych_api.modules.results.domain.models import CommitteeData, RankingEntry
 from munych_api.modules.results.domain.ranking import rank_committee
 from munych_api.shared.kernel import NotFoundError
+from munych_api.shared.kernel.catalog import DEFAULT_EVENT_TYPE, EventType
 
 
 @dataclass(frozen=True, slots=True)
 class CommitteeRanking:
     items: list[RankingEntry]
     quota_warnings: list[str]
+    event_type: EventType = DEFAULT_EVENT_TYPE
 
 
 async def require_committee_data(
@@ -35,4 +37,5 @@ class ComputeRanking:
         return CommitteeRanking(
             items=rank_committee(data),
             quota_warnings=quota_warnings(awards, data.committee.award_quotas),
+            event_type=data.event_type,
         )

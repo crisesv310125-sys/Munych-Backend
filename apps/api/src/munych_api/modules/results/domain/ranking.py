@@ -8,11 +8,61 @@ from munych_api.modules.results.domain.models import (
     IncompleteFlag,
     RankingEntry,
 )
-from munych_api.scoring_engine import Criterion, Delegation, Rubric, ScoreEntry, rank_delegations
+from munych_api.scoring_engine import (
+    Criterion,
+    Delegation,
+    RoleScores,
+    Rubric,
+    ScoreEntry,
+    rank_delegations_by_role,
+)
+from munych_api.shared.kernel.catalog import EVENT_TYPES, VoterRole
+
+
+def role_inputs(data: CommitteeData) -> dict[str, RoleScores]:
+    """Agrupa las calificaciones por rol que vota, con el peso del tipo de evento.
+
+    Las cuentas cuyo rol no vota en este tipo de evento (por ejemplo, un juez en
+    un MUN regular) no cuentan.
+    """
+    config = EVENT_TYPES[data.event_type]
+    by_role: dict[VoterRole, list[ScoreEntry]] = {role: [] for role in config.voter_roles}
+    for s in data.scores:
+        role = config.account_voter_role(s.committee_role)
+        if role is not None and role != "delegate":
+            by_role[role].append(
+                ScoreEntry(
+                    str(s.judge_id),
+                    str(s.delegate_id),
+                    str(s.session_id),
+                    str(s.criterion_id),
+                    s.value,
+                )
+            )
+    if "delegate" in by_role:
+        # El delegado vota por la delegación: va en `delegate_id` del motor.
+        by_role["delegate"] = [
+            ScoreEntry(
+                str(v.voter_delegate_id),
+                str(v.delegation_id),
+                str(v.session_id),
+                str(v.criterion_id),
+                v.value,
+            )
+            for v in data.peer_votes
+        ]
+    return {
+        role: RoleScores(
+            weight=config.voter_weights[role],
+            scores=tuple(entries),
+            per_delegation=role == "delegate",
+        )
+        for role, entries in by_role.items()
+    }
 
 
 def rank_committee(data: CommitteeData) -> list[RankingEntry]:
-    """Ranking por nota de la delegación con el desempate de la sección 6.3."""
+    """Ranking por nota de la delegación (ponderada por rol) con el desempate de la sección 6.3."""
     delegations = {d.id: d for d in data.delegations}
     names = {p.id: p.full_name for d in data.delegations for p in d.delegates}
 
@@ -37,15 +87,10 @@ def rank_committee(data: CommitteeData) -> list[RankingEntry]:
         criteria=tuple(Criterion(str(c.id), c.weight, c.position) for c in data.rubric.criteria),
     )
     session_numbers = {str(s.id): s.number for s in data.sessions}
-    rows = rank_delegations(
+    rows = rank_delegations_by_role(
         rubric,
         [Delegation(str(d.id), tuple(str(p.id) for p in d.delegates)) for d in data.delegations],
-        [
-            ScoreEntry(
-                str(s.judge_id), str(s.delegate_id), str(s.session_id), str(s.criterion_id), s.value
-            )
-            for s in data.scores
-        ],
+        role_inputs(data),
         [str(s.id) for s in sorted(data.sessions, key=lambda s: s.number)],
     )
     return [
@@ -68,6 +113,7 @@ def rank_committee(data: CommitteeData) -> list[RankingEntry]:
                 )
                 for f in row.flags
             ),
+            role_scores=dict(row.role_scores),  # type: ignore[arg-type]
         )
         for row in rows
     ]

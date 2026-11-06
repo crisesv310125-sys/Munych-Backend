@@ -211,6 +211,34 @@ scores = Table(
     schema="app",
 )
 
+voter_tokens = Table(
+    "voter_tokens",
+    metadata,
+    _id(),
+    Column("delegate_id", UUID(as_uuid=True), ForeignKey("app.delegates.id"), nullable=False),
+    Column("event_id", UUID(as_uuid=True), ForeignKey("app.events.id"), nullable=False),
+    Column("token_hash", Text, nullable=False, unique=True),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    Column("revoked_at", DateTime(timezone=True)),
+    Column("last_used_at", DateTime(timezone=True)),
+    Column("created_by", UUID(as_uuid=True)),
+    *_timestamps(),
+    schema="app",
+)
+
+delegate_votes = Table(
+    "delegate_votes",
+    metadata,
+    _id(),
+    Column("voter_delegate_id", UUID(as_uuid=True), ForeignKey("app.delegates.id"), nullable=False),
+    Column("delegation_id", UUID(as_uuid=True), ForeignKey("app.delegations.id"), nullable=False),
+    Column("session_id", UUID(as_uuid=True), ForeignKey("app.scoring_sessions.id"), nullable=False),
+    Column("criterion_id", UUID(as_uuid=True), ForeignKey("app.criteria.id"), nullable=False),
+    Column("value", SmallInteger, nullable=False),
+    *_timestamps(),
+    schema="app",
+)
+
 awards = Table(
     "awards",
     metadata,

@@ -103,3 +103,16 @@ Aspectos que la especificación dejaba abiertos y que el backend fija así:
 | Reinvitar | `POST /judges` con el correo de un juez pendiente reenvía la invitación (antes lo reutilizaba sin enviar nada). |
 | Límite de correos | Si Supabase Auth rechaza el envío por límite de correos (429), la API responde `429 RATE_LIMITED` con un mensaje en español en lugar de `500`. |
 | Destino del enlace | Las invitaciones redirigen a `PANEL_URL` (por defecto `http://localhost:5173`), que debe estar en las Redirect URLs de Supabase Auth. |
+
+### Tipos de evento y votación de delegados (2026-11-05)
+
+Spec «Tipos de evento y votación de delegados» del cliente y ADR-005 de la bóveda (acceso de los delegados). Migración `20261105000100_voting`.
+
+| Tema | Decisión |
+|---|---|
+| Tipos de evento | `event_type` ∈ `judges_only` \| `mun_regular` \| `national_championship` (el provisional `voting` pasa a `mun_regular`). Pesos en `EVENT_TYPES` (`shared/kernel/catalog.py`): MUN regular = mesa 30, delegados 50, staff 20; Campeonato = jueces 50, mesa 15, delegados 25, staff 10. |
+| Roles de cuenta | `committee_judges.role` admite `staff`. `chair` y `moderator` cuentan como **mesa**. En `judges_only` todas las cuentas forman un solo grupo, como antes. Una cuenta cuyo rol no vota en el tipo de evento (un `judge` en un MUN regular) recibe `FORBIDDEN` por ítem en el lote. |
+| Cálculo | Por rol: el método de siempre (nota ponderada → media de evaluadores → media de sesiones), y luego `Σ peso·nota / Σ peso` **de los roles con nota**: un rol sin votos no cuenta como 0. Los delegados votan por delegación; las cuentas, por delegado. Con un solo rol el resultado es idéntico al anterior (`tests/unit/test_scoring_roles.py`). |
+| Ranking | `RankingOut` añade `event_type` y `role_weights` (%); cada entrada añade `role_scores` (0–100 o `null`). La instantánea guarda `role_scores`. La salida pública no cambia. |
+| Accesos de delegados | `GET/POST /events/{id}/voter-tokens` (`list_voter_tokens`, `generate_voter_tokens`) y `POST /events/{id}/voter-tokens/revoke` (`revoke_voter_tokens`). Token aleatorio de 192 bits por delegado; en la BD solo su SHA-256. El token, el enlace y el QR (SVG) **solo** vienen en la respuesta de `POST`. Regenerar revoca el anterior. Vencen 2 días después de `ends_on`. `409 CONFLICT` si en el tipo de evento no votan delegados. |
+| Boleta | `GET/PUT /vote/ballot` (`get_ballot`, `submit_votes`), con `Authorization: Bearer <token del delegado>`. El servidor decide la sesión (la abierta del comité; el celular no la manda). Sin sesión abierta o con el evento fuera de `active`, `open_session = null` y `PUT` → `409 SESSION_CLOSED`. Votar por la propia delegación → `403 FORBIDDEN` (y un trigger lo impide en la BD). Un voto por (votante, delegación, sesión, criterio): reenviar lo corrige. Token inválido, revocado o vencido → `401 UNAUTHORIZED`. Límite por token, no por IP: 20 GET/min y 30 PUT/min. |
