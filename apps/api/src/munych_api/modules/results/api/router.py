@@ -8,6 +8,7 @@ from munych_api.modules.results.api.dependencies import (
     ComputeRankingDep,
     ExportEventCsvDep,
     ExportEventDep,
+    ExportEventPdfDep,
     ManageAwardsDep,
     PublicationDep,
     SetTiebreakDep,
@@ -35,6 +36,7 @@ from munych_api.modules.results.domain.models import Award, PublicationSettings,
 from munych_api.modules.results.domain.snapshot import presented
 from munych_api.modules.results.infrastructure.csv_exporter import CSV_MEDIA_TYPE
 from munych_api.modules.results.infrastructure.excel_exporter import XLSX_MEDIA_TYPE
+from munych_api.modules.results.infrastructure.pdf_exporter import PDF_MEDIA_TYPE
 from munych_api.shared.auth import AdminUser, OrganizationId
 from munych_api.shared.kernel.catalog import EVENT_TYPES
 
@@ -235,6 +237,28 @@ async def export_event_csv(
 
     Columnas: comité, siglas, posición, empate, delegación, institución, delegados, nota
     (y nota por rol si el evento tiene varios), premios y avisos. Sin detalle por juez.
+    """
+    return _download(await use_case.execute(organization_id, event_id, options))
+
+
+@router.get(
+    "/events/{event_id}/export.pdf",
+    response_class=Response,
+    responses={200: {"content": {PDF_MEDIA_TYPE: {}}, "description": "Acta de resultados"}},
+)
+async def export_event_pdf(
+    event_id: UUID,
+    _: AdminUser,
+    organization_id: OrganizationId,
+    use_case: ExportEventPdfDep,
+    options: ExportOptionsDep,
+) -> Response:
+    """Acta de resultados oficial (según la muestra de MUNYCH).
+
+    Portada con los datos del evento y el resumen de premiación; luego una sección por
+    comité con sus premios y su ranking. Los nombres siguen el formato de la publicación
+    (por defecto, nombre e inicial). Respeta `committee_id` e `include_scores`; nunca
+    incluye jueces ni comentarios.
     """
     return _download(await use_case.execute(organization_id, event_id, options))
 

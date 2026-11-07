@@ -12,6 +12,7 @@ from munych_api.modules.results.application.ports import (
     ResultsRepository,
     ScoreDetail,
 )
+from munych_api.shared.kernel.catalog import DEFAULT_EVENT_TYPE
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +77,10 @@ class ExportEvent:
             committees=committees,
             details=details,
             options=options,
+            slug=event.slug,
+            brand=event.brand,
+            event_type=committees[0].event_type if committees else DEFAULT_EVENT_TYPE,
+            name_format=event.publication_settings.name_format,
         )
         return ExportFile(
             filename=f"{event.slug}-resultados.{self._exporter.extension}",

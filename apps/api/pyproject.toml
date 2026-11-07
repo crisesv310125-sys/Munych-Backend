@@ -23,6 +23,8 @@ dependencies = [
     "sentry-sdk[fastapi]>=2.18",
     "tzdata>=2024.2",
     "segno>=1.6",
+    "reportlab>=4.2",
+    "babel>=2.16",
 ]
 
 [dependency-groups]
@@ -81,7 +83,7 @@ plugins = ["pydantic.mypy"]
 warn_unreachable = true
 
 [[tool.mypy.overrides]]
-module = ["slowapi.*", "asyncpg.*", "gotrue.*", "supabase.*", "storage3.*", "segno.*"]
+module = ["slowapi.*", "asyncpg.*", "gotrue.*", "supabase.*", "storage3.*", "segno.*", "reportlab.*", "babel.*"]
 ignore_missing_imports = true
 
 [tool.pydantic-mypy]

@@ -10,9 +10,11 @@ from munych_api.modules.results.domain.models import (
     CommitteeData,
     CommitteeInfo,
     EventInfo,
+    NameFormat,
     PublicationSettings,
     RankingEntry,
 )
+from munych_api.shared.kernel.catalog import DEFAULT_EVENT_TYPE, EventType
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +47,7 @@ class CommitteeResults:
     committee: CommitteeInfo
     ranking: list[RankingEntry]
     awards: list[Award]
+    event_type: EventType = DEFAULT_EVENT_TYPE
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +80,12 @@ class ExportData:
     committees: list[CommitteeResults]
     details: list[ScoreDetail]
     options: ExportOptions = field(default_factory=ExportOptions)
+    # Para el acta en PDF (2026-11-07).
+    slug: str = ""
+    brand: str = "munych"
+    event_type: EventType = DEFAULT_EVENT_TYPE
+    name_format: NameFormat = "first_name_initial"
+    """Formato de nombres de la publicación: el acta también protege a los menores."""
 
 
 class ResultsRepository(Protocol):

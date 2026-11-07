@@ -18,6 +18,7 @@ from munych_api.modules.results.infrastructure.adapters import (
 from munych_api.modules.results.infrastructure.csv_exporter import CsvExporter
 from munych_api.modules.results.infrastructure.excel_exporter import ExcelExporter
 from munych_api.modules.results.infrastructure.pages_rebuild import PagesRebuildScheduler
+from munych_api.modules.results.infrastructure.pdf_exporter import PdfExporter
 from munych_api.modules.results.infrastructure.sqlalchemy_results_repository import (
     SqlAlchemyResultsRepository,
 )
@@ -79,6 +80,10 @@ def get_export_event_csv(repository: RepositoryDep, clock: ClockDep) -> ExportEv
     return ExportEvent(repository, CsvExporter(), clock)
 
 
+def get_export_event_pdf(repository: RepositoryDep, clock: ClockDep) -> ExportEvent:
+    return ExportEvent(repository, PdfExporter(), clock)
+
+
 def get_publication(
     repository: RepositoryDep,
     revalidator: Annotated[Revalidator, Depends(get_revalidator)],
@@ -93,4 +98,5 @@ ManageAwardsDep = Annotated[ManageAwards, Depends(get_manage_awards)]
 CloseEventDep = Annotated[CloseEvent, Depends(get_close_event)]
 ExportEventDep = Annotated[ExportEvent, Depends(get_export_event)]
 ExportEventCsvDep = Annotated[ExportEvent, Depends(get_export_event_csv)]
+ExportEventPdfDep = Annotated[ExportEvent, Depends(get_export_event_pdf)]
 PublicationDep = Annotated[Publication, Depends(get_publication)]
