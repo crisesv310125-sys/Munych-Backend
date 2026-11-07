@@ -92,5 +92,11 @@ class AuditLog(Protocol):
     ) -> None: ...
 
 
+class PeerVote(Protocol):
+    async def open_with_session(self, organization_id: UUID, committee_id: UUID) -> None:
+        """Abre el voto entre pares del comité al abrir una sesión (si aplica y no lo está)."""
+        ...
+
+
 class Clock(Protocol):
     def now(self) -> datetime: ...

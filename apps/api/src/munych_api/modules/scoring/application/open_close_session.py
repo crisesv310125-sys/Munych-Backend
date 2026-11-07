@@ -3,15 +3,23 @@
 from dataclasses import replace
 from uuid import UUID
 
-from munych_api.modules.scoring.application.ports import Clock, CommitteeInfo, ScoringRepository
+from munych_api.modules.scoring.application.ports import (
+    Clock,
+    CommitteeInfo,
+    PeerVote,
+    ScoringRepository,
+)
 from munych_api.modules.scoring.domain.models import ScoringSession
 from munych_api.shared.kernel import DomainError, ErrorCode, NotFoundError
 
 
 class ManageSessions:
-    def __init__(self, repository: ScoringRepository, clock: Clock) -> None:
+    def __init__(
+        self, repository: ScoringRepository, clock: Clock, peer_vote: PeerVote | None = None
+    ) -> None:
         self._repo = repository
         self._clock = clock
+        self._peer_vote = peer_vote
 
     async def _committee(self, organization_id: UUID, committee_id: UUID) -> CommitteeInfo:
         committee = await self._repo.get_committee(committee_id, organization_id)
@@ -35,12 +43,18 @@ class ManageSessions:
         return await self._repo.list_sessions(committee_id)
 
     async def open(self, organization_id: UUID, committee_id: UUID, number: int) -> ScoringSession:
-        """Abrir una sesión ya abierta no cambia nada (idempotente)."""
+        """Abrir una sesión ya abierta no cambia nada (idempotente).
+
+        Al abrirla también se abre el voto entre pares del comité (2026-11-06), en la
+        misma transacción, para que los delegados puedan votar desde ese momento.
+        """
         session = await self._session(organization_id, committee_id, number)
         if session.is_open:
             return session
         opened = replace(session, status="open", opened_at=self._clock.now(), closed_at=None)
         await self._repo.save_session(opened)
+        if self._peer_vote is not None:
+            await self._peer_vote.open_with_session(organization_id, committee_id)
         return opened
 
     async def close(self, organization_id: UUID, committee_id: UUID, number: int) -> ScoringSession:

@@ -428,6 +428,27 @@ async def test_open_and_close_sessions(repo: InMemoryScoringRepository, clock: F
     assert [s.status for s in await manage.list(ORG, COMMITTEE)] == ["closed"]
 
 
+class SpyPeerVote:
+    def __init__(self) -> None:
+        self.calls: list[tuple[UUID, UUID]] = []
+
+    async def open_with_session(self, organization_id: UUID, committee_id: UUID) -> None:
+        self.calls.append((organization_id, committee_id))
+
+
+async def test_opening_a_session_opens_the_peer_vote(
+    repo: InMemoryScoringRepository, clock: FixedClock
+) -> None:
+    repo.add_session(1, status="closed")
+    peer_vote = SpyPeerVote()
+    manage = ManageSessions(repo, clock, peer_vote)
+
+    await manage.open(ORG, COMMITTEE, 1)
+    await manage.open(ORG, COMMITTEE, 1)  # ya abierta: no vuelve a llamar
+    await manage.close(ORG, COMMITTEE, 1)
+    assert peer_vote.calls == [(ORG, COMMITTEE)]
+
+
 async def test_session_errors(repo: InMemoryScoringRepository, clock: FixedClock) -> None:
     manage = ManageSessions(repo, clock)
     with pytest.raises(DomainError) as exc:

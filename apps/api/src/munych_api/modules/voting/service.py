@@ -386,6 +386,26 @@ class VotingService:
             closes_at=body.closes_at,
         )
 
+    async def open_with_session(self, organization_id: UUID, committee_id: UUID) -> None:
+        """Al abrir una sesión, abre ya el voto entre pares del comité.
+
+        No hace nada si en el tipo de evento no votan delegados, si el evento está cerrado
+        o si la votación ya está abierta (se respeta el cierre programado). Si estaba
+        programada para después o ya había cerrado, se abre ahora sin hora de cierre.
+        """
+        row = await self._repo.committee_event(committee_id, organization_id)
+        if (
+            row is None
+            or row["status"] == "closed"
+            or "delegate" not in EVENT_TYPES[row["event_type"]].voter_weights
+        ):
+            return
+        now = self._clock.now()
+        opens_at, closes_at = row["peer_vote_opens_at"], row["peer_vote_closes_at"]
+        if window_status(opens_at, closes_at, row["status"], now) == "open":
+            return
+        await self._repo.set_window(committee_id, now, None)
+
     async def close_window(self, organization_id: UUID, committee_id: UUID) -> PeerVoteWindowOut:
         """Cierra el voto entre pares ya (si no estaba abierto, no hace nada)."""
         row = await self._require_committee(organization_id, committee_id)

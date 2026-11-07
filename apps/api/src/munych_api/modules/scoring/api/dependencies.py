@@ -10,9 +10,11 @@ from munych_api.modules.scoring.application.open_close_session import ManageSess
 from munych_api.modules.scoring.application.ports import Clock
 from munych_api.modules.scoring.application.submit_scores import SubmitScores
 from munych_api.modules.scoring.infrastructure.audit_adapter import AuditServiceAdapter
+from munych_api.modules.scoring.infrastructure.peer_vote_adapter import PeerVoteAdapter
 from munych_api.modules.scoring.infrastructure.sqlalchemy_scoring_repository import (
     SqlAlchemyScoringRepository,
 )
+from munych_api.modules.voting.dependencies import VotingServiceDep
 from munych_api.shared.database import DbSession
 from munych_api.shared.kernel import SystemClock
 
@@ -37,8 +39,11 @@ def get_submit_scores(
     return SubmitScores(repository, AuditServiceAdapter(audit), clock)
 
 
-def get_manage_sessions(repository: RepositoryDep, clock: ClockDep) -> ManageSessions:
-    return ManageSessions(repository, clock)
+def get_manage_sessions(
+    repository: RepositoryDep, clock: ClockDep, voting: VotingServiceDep
+) -> ManageSessions:
+    # Misma sesión de BD (FastAPI cachea DbSession por petición): una sola transacción.
+    return ManageSessions(repository, clock, PeerVoteAdapter(voting))
 
 
 def get_progress_use_case(repository: RepositoryDep) -> GetProgress:
