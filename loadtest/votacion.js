@@ -5,7 +5,8 @@
 // TOKENS es el CSV que descarga el panel en «Votación → Descargar CSV con enlaces»
 // (la última columna es el enlace; el token es lo que va después de «#/votar/»).
 // Cada usuario virtual es un delegado: consulta su boleta cada 20 s (como la página)
-// y vota por todas las delegaciones de su comité en la sesión abierta.
+// y, con el voto entre pares abierto, envía una vez sus premios (mejor delegado,
+// delegado distinguido, mención de honor).
 
 import http from 'k6/http';
 import { check, sleep } from 'k6';
@@ -54,21 +55,17 @@ export default function () {
     return;
   }
   const ballot = res.json();
-  if (!ballot.open_session || !ballot.rubric) {
-    sleep(20); // esperando la siguiente sesión, como la página
+  if (ballot.peer_vote.status !== 'open' || ballot.picks.length > 0) {
+    sleep(20); // esperando a que abra (o ya votó), como la página
     return;
   }
 
-  // Vota por cada delegación, una a la vez, como en el celular.
-  for (const d of ballot.delegations) {
-    const items = ballot.rubric.criteria.map((c) => ({
-      delegation_id: d.delegation_id,
-      criterion_id: c.id,
-      value: ballot.rubric.scale_min + Math.floor(Math.random() * (ballot.rubric.scale_max - ballot.rubric.scale_min + 1)),
-    }));
-    const vote = http.put(`${API_URL}/vote/ballot`, JSON.stringify({ items }), { headers, tags: { name: 'vote' } });
-    check(vote, { 'voto 200': (r) => r.status === 200 });
-    sleep(3 + Math.random() * 5); // tiempo de mover los sliders
-  }
+  // Elige una delegación distinta al azar para cada premio y envía la boleta una vez.
+  sleep(10 + Math.random() * 20); // tiempo de buscar y revisar
+  const pool = [...ballot.delegations].sort(() => Math.random() - 0.5);
+  const picks = ballot.awards.map((a, i) => ({ award_type: a.award_type, delegation_id: pool[i].delegation_id }));
+  const vote = http.post(`${API_URL}/vote/ballot`, JSON.stringify({ picks }), { headers, tags: { name: 'vote' } });
+  // 409: otra iteración del mismo delegado ya votó (el voto no se puede cambiar).
+  check(vote, { 'voto 200/409': (r) => r.status === 200 || r.status === 409 });
   sleep(20);
 }

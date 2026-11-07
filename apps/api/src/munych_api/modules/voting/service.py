@@ -1,4 +1,8 @@
-"""Votación de delegados: accesos (admin) y boleta (delegado). Ver ADR-005."""
+"""Votación de delegados: accesos y ventana (admin) y boleta entre pares (delegado).
+
+Ver ADR-005. Desde el 2026-11-06 los delegados no usan la rúbrica: votan una sola
+vez por comité Mejor delegado, Delegado distinguido y Mención de honor.
+"""
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -8,16 +12,17 @@ from uuid import UUID
 
 from munych_api.modules.voting.repository import VotingRepository
 from munych_api.modules.voting.schemas import (
-    BallotCriterionOut,
+    BallotAwardOut,
     BallotDelegationOut,
     BallotOut,
-    BallotRubricOut,
-    BallotSessionOut,
-    BallotVoteOut,
+    BallotPickOut,
+    CommitteePeerVoteOut,
     GeneratedTokenOut,
     GenerateTokensIn,
+    PeerVoteStatus,
+    PeerVoteWindowIn,
+    PeerVoteWindowOut,
     TokenStatus,
-    VoteIn,
     VoterAccessOut,
 )
 from munych_api.modules.voting.tokens import (
@@ -27,8 +32,15 @@ from munych_api.modules.voting.tokens import (
     new_token,
     qr_svg,
 )
+from munych_api.scoring_engine import AWARD_POINTS
 from munych_api.shared.kernel import Clock, DomainError, ErrorCode, NotFoundError
-from munych_api.shared.kernel.catalog import EVENT_TYPES
+from munych_api.shared.kernel.catalog import (
+    EVENT_TYPES,
+    PEER_AWARD_LABELS,
+    PEER_AWARD_TYPES,
+    EventType,
+    PeerAwardType,
+)
 
 TOUCH_INTERVAL = timedelta(minutes=5)
 """`last_used_at` se actualiza como mucho cada 5 minutos (la boleta se consulta a menudo)."""
@@ -48,9 +60,36 @@ class Voter:
     committee_id: UUID
     committee_name: str
     committee_acronym: str
-    rubric_id: UUID | None
     event_name: str
     event_status: str
+    event_type: EventType
+
+
+def window_status(
+    opens_at: datetime | None, closes_at: datetime | None, event_status: str, now: datetime
+) -> PeerVoteStatus:
+    """Estado del voto entre pares. Solo está abierto si el evento está activo."""
+    if event_status == "closed":
+        return "closed" if opens_at is not None else "not_scheduled"
+    if opens_at is None:
+        return "not_scheduled"
+    if closes_at is not None and now >= closes_at:
+        return "closed"
+    if now < opens_at or event_status != "active":
+        return "scheduled"
+    return "open"
+
+
+def required_awards(candidates: int) -> tuple[PeerAwardType, ...]:
+    """Premios a votar: los tres, o menos si el comité tiene pocas delegaciones."""
+    return PEER_AWARD_TYPES[: min(len(PEER_AWARD_TYPES), candidates)]
+
+
+def receipt(committee_acronym: str, vote_id: UUID) -> str:
+    """Comprobante legible, p. ej. `AG-7K2Q-91` (siglas del comité + parte del id del voto)."""
+    prefix = "".join(ch for ch in committee_acronym.upper() if ch.isalnum())[:6] or "MUN"
+    code = vote_id.hex.upper()
+    return f"{prefix}-{code[:4]}-{code[4:6]}"
 
 
 def _status(row: dict[str, Any], now: datetime) -> TokenStatus:
@@ -189,40 +228,22 @@ class VotingService:
             committee_id=row["committee_id"],
             committee_name=row["committee_name"],
             committee_acronym=row["committee_acronym"],
-            rubric_id=row["rubric_id"],
             event_name=row["event_name"],
             event_status=row["event_status"],
+            event_type=row["event_type"],
         )
-
-    async def _rubric(self, voter: Voter) -> BallotRubricOut | None:
-        rubric = await self._repo.rubric(voter.rubric_id) if voter.rubric_id else None
-        if rubric is None:
-            return None
-        return BallotRubricOut(
-            scale_min=rubric["scale_min"],
-            scale_max=rubric["scale_max"],
-            criteria=[
-                BallotCriterionOut(
-                    id=c["id"],
-                    name=c["name"],
-                    description=c["description"],
-                    weight=float(Decimal(c["weight"])),
-                    position=c["position"],
-                    level_descriptors=c["level_descriptors"] or {},
-                )
-                for c in rubric["criteria"]
-            ],
-        )
-
-    async def _open_session(self, voter: Voter) -> dict[str, Any] | None:
-        # En borrador o cerrado no se vota aunque haya una sesión abierta.
-        if voter.event_status != "active":
-            return None
-        return await self._repo.open_session(voter.committee_id)
 
     async def ballot(self, voter: Voter) -> BallotOut:
-        session = await self._open_session(voter)
-        votes = await self._repo.votes(voter.delegate_id, session["id"]) if session else []
+        progress = await self._repo.committee_progress(voter.committee_id)
+        candidates = [
+            d
+            for d in await self._repo.committee_delegations(voter.committee_id)
+            if d["id"] != voter.delegation_id
+        ]
+        picks = await self._repo.picks(voter.delegate_id)
+        order = {award: i for i, award in enumerate(PEER_AWARD_TYPES)}
+        picks.sort(key=lambda p: order.get(p["award_type"], len(order)))
+        weight = EVENT_TYPES[voter.event_type].voter_weights.get("delegate", Decimal(0))
         return BallotOut(
             voter_name=voter.full_name,
             own_delegation=BallotDelegationOut(
@@ -234,70 +255,147 @@ class VotingService:
             event_status=voter.event_status,  # type: ignore[arg-type]
             committee_name=voter.committee_name,
             committee_acronym=voter.committee_acronym,
-            open_session=(
-                BallotSessionOut(
-                    session_id=session["id"],
-                    number=session["number"],
-                    opened_at=session["opened_at"],
-                )
-                if session
-                else None
+            sessions_total=progress["sessions_count"],
+            sessions_closed=progress["sessions_closed"],
+            peer_vote=PeerVoteWindowOut(
+                status=window_status(
+                    progress["peer_vote_opens_at"],
+                    progress["peer_vote_closes_at"],
+                    voter.event_status,
+                    self._clock.now(),
+                ),
+                opens_at=progress["peer_vote_opens_at"],
+                closes_at=progress["peer_vote_closes_at"],
             ),
-            rubric=await self._rubric(voter),
+            weight=float(weight),
+            awards=[
+                BallotAwardOut(
+                    award_type=award, label=PEER_AWARD_LABELS[award], points=AWARD_POINTS[award]
+                )
+                for award in required_awards(len(candidates))
+            ],
             delegations=[
                 BallotDelegationOut(
                     delegation_id=d["id"],
                     country_code=d["country_code"],
                     character_name=d["character_name"],
                 )
-                for d in await self._repo.committee_delegations(voter.committee_id)
-                if d["id"] != voter.delegation_id
+                for d in candidates
             ],
-            votes=[BallotVoteOut(**v) for v in votes],
+            picks=[
+                BallotPickOut(award_type=p["award_type"], delegation_id=p["delegation_id"])
+                for p in picks
+            ],
+            submitted_at=picks[0]["created_at"] if picks else None,
+            receipt=receipt(voter.committee_acronym, picks[0]["id"]) if picks else None,
         )
 
-    async def vote(self, voter: Voter, items: list[VoteIn]) -> BallotOut:
-        """Guarda los votos en la sesión abierta. Todo el lote se valida antes de guardar."""
+    async def vote(self, voter: Voter, picks: list[BallotPickOut]) -> BallotOut:
+        """Guarda el voto entre pares completo. Se valida todo antes de guardar; no se cambia."""
         if voter.event_status == "closed":
             raise DomainError(ErrorCode.EVENT_CLOSED, "El evento está cerrado")
-        session = await self._open_session(voter)
-        if session is None:
-            raise DomainError(
-                ErrorCode.SESSION_CLOSED, "No hay una sesión abierta; espera a la siguiente"
-            )
-        rubric = await self._rubric(voter)
-        if rubric is None:
-            raise DomainError(ErrorCode.CONFLICT, "El comité aún no tiene rúbrica")
-        criterion_ids = {c.id for c in rubric.criteria}
-        delegation_ids = {
-            d["id"] for d in await self._repo.committee_delegations(voter.committee_id)
-        }
-
-        cells: dict[tuple[UUID, UUID], int] = {}
-        for item in items:
-            if item.delegation_id == voter.delegation_id:
-                raise DomainError(ErrorCode.FORBIDDEN, "No puedes votar por tu propia delegación")
-            if item.delegation_id not in delegation_ids:
-                raise DomainError(ErrorCode.NOT_FOUND, "La delegación no pertenece a tu comité")
-            if item.criterion_id not in criterion_ids:
-                raise DomainError(
-                    ErrorCode.NOT_FOUND, "El criterio no pertenece a la rúbrica del comité"
-                )
-            if not rubric.scale_min <= item.value <= rubric.scale_max:
-                raise DomainError(
-                    ErrorCode.VALUE_OUT_OF_RANGE,
-                    f"El valor {item.value} está fuera de la escala "
-                    f"{rubric.scale_min}–{rubric.scale_max}",
-                )
-            # Si una celda viene repetida en el lote, gana la última.
-            cells[(item.delegation_id, item.criterion_id)] = item.value
-
-        await self._repo.upsert_votes(
-            voter.delegate_id,
-            session["id"],
-            [
-                (delegation_id, criterion_id, v)
-                for (delegation_id, criterion_id), v in cells.items()
-            ],
+        progress = await self._repo.committee_progress(voter.committee_id)
+        status = window_status(
+            progress["peer_vote_opens_at"],
+            progress["peer_vote_closes_at"],
+            voter.event_status,
+            self._clock.now(),
         )
+        if status != "open":
+            detail = "La votación ya cerró" if status == "closed" else "La votación aún no abre"
+            raise DomainError(ErrorCode.SESSION_CLOSED, detail)
+        if await self._repo.picks(voter.delegate_id):
+            raise DomainError(ErrorCode.CONFLICT, "Ya enviaste tu voto; no se puede cambiar")
+
+        candidates = {
+            d["id"]
+            for d in await self._repo.committee_delegations(voter.committee_id)
+            if d["id"] != voter.delegation_id
+        }
+        required = required_awards(len(candidates))
+        if not required:
+            raise DomainError(ErrorCode.CONFLICT, "Tu comité no tiene otras delegaciones")
+        if sorted(p.award_type for p in picks) != sorted(required):
+            labels = ", ".join(PEER_AWARD_LABELS[a] for a in required)
+            raise DomainError(ErrorCode.VALIDATION_ERROR, f"Elige una delegación para: {labels}")
+        chosen = [p.delegation_id for p in picks]
+        if len(set(chosen)) != len(chosen):
+            raise DomainError(
+                ErrorCode.VALIDATION_ERROR, "Cada premio debe ir a una delegación distinta"
+            )
+        for delegation_id in chosen:
+            if delegation_id == voter.delegation_id:
+                raise DomainError(ErrorCode.FORBIDDEN, "No puedes votar por tu propia delegación")
+            if delegation_id not in candidates:
+                raise DomainError(ErrorCode.NOT_FOUND, "La delegación no pertenece a tu comité")
+
+        saved = await self._repo.insert_picks(
+            voter.delegate_id,
+            voter.committee_id,
+            [(p.award_type, p.delegation_id) for p in picks],
+        )
+        if not saved:
+            raise DomainError(ErrorCode.CONFLICT, "Ya enviaste tu voto; no se puede cambiar")
         return await self.ballot(voter)
+
+    # ------------------------------------------------------------ ventana (admin)
+
+    async def list_windows(
+        self, organization_id: UUID, event_id: UUID
+    ) -> list[CommitteePeerVoteOut]:
+        event = await self._require_event(organization_id, event_id)
+        now = self._clock.now()
+        return [
+            CommitteePeerVoteOut(
+                committee_id=r["committee_id"],
+                committee_name=r["committee_name"],
+                committee_acronym=r["committee_acronym"],
+                status=window_status(
+                    r["peer_vote_opens_at"], r["peer_vote_closes_at"], event["status"], now
+                ),
+                opens_at=r["peer_vote_opens_at"],
+                closes_at=r["peer_vote_closes_at"],
+                voters=r["voters"],
+                submitted=r["submitted"],
+            )
+            for r in await self._repo.event_committees(event_id)
+        ]
+
+    async def _require_committee(self, organization_id: UUID, committee_id: UUID) -> dict[str, Any]:
+        row = await self._repo.committee_event(committee_id, organization_id)
+        if row is None:
+            raise NotFoundError("Comité no encontrado")
+        _ensure_voting_event(row)
+        return row
+
+    async def open_window(
+        self, organization_id: UUID, committee_id: UUID, body: PeerVoteWindowIn
+    ) -> PeerVoteWindowOut:
+        """Abre (o programa) el voto entre pares. Reabrir quita el cierre anterior."""
+        row = await self._require_committee(organization_id, committee_id)
+        now = self._clock.now()
+        opens_at = body.opens_at or now
+        if body.closes_at is not None and body.closes_at <= max(opens_at, now):
+            raise DomainError(
+                ErrorCode.VALIDATION_ERROR, "El cierre debe ser posterior a la apertura y a ahora"
+            )
+        await self._repo.set_window(committee_id, opens_at, body.closes_at)
+        return PeerVoteWindowOut(
+            status=window_status(opens_at, body.closes_at, row["status"], now),
+            opens_at=opens_at,
+            closes_at=body.closes_at,
+        )
+
+    async def close_window(self, organization_id: UUID, committee_id: UUID) -> PeerVoteWindowOut:
+        """Cierra el voto entre pares ya (si no estaba abierto, no hace nada)."""
+        row = await self._require_committee(organization_id, committee_id)
+        now = self._clock.now()
+        opens_at, closes_at = row["peer_vote_opens_at"], row["peer_vote_closes_at"]
+        if window_status(opens_at, closes_at, row["status"], now) == "open":
+            closes_at = now
+            await self._repo.set_window(committee_id, opens_at, closes_at)
+        return PeerVoteWindowOut(
+            status=window_status(opens_at, closes_at, row["status"], now),
+            opens_at=opens_at,
+            closes_at=closes_at,
+        )

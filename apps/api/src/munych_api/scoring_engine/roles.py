@@ -13,9 +13,10 @@ Hay dos clases de rol:
 
 - **por delegado** (jueces, mesa, staff): califican a cada delegado; la nota de la
   delegación es la media de sus delegados, como en `rank_delegations`.
-- **por delegación** (delegados): votan por la delegación entera. En sus
-  `ScoreEntry`, `delegate_id` es el id de la delegación votada y `judge_id` el
-  del delegado que vota.
+- **por delegación** (delegados): votan por la delegación entera. Desde el
+  2026-11-06 votan por premios (ver `peer_awards`) y su nota llega ya calculada
+  en `RoleScores.delegation_scores`. El modo con `ScoreEntry` y
+  `per_delegation=True` (`delegate_id` = delegación votada) sigue disponible.
 """
 
 from collections.abc import Mapping, Sequence
@@ -45,10 +46,20 @@ class RoleScores:
     scores: tuple[ScoreEntry, ...]
     per_delegation: bool = False
     """True si el grupo vota por delegación (delegados) y no por delegado."""
+    delegation_scores: Mapping[str, Decimal | None] | None = None
+    """Nota 0-100 ya calculada por delegación (voto de delegados por premios).
+
+    Si se da, `scores` se ignora, el rol cuenta por delegación y no aporta a las
+    medias por criterio (no usa la rúbrica).
+    """
 
     def __post_init__(self) -> None:
         if self.weight <= 0:
             raise ValueError("El peso de un rol debe ser positivo")
+
+    @property
+    def by_delegation(self) -> bool:
+        return self.per_delegation or self.delegation_scores is not None
 
 
 def weighted_combination(
@@ -79,6 +90,13 @@ def _role_outcome(
     role: RoleScores,
     session_ids: Sequence[str],
 ) -> _RoleOutcome:
+    if role.delegation_scores is not None:
+        fixed = role.delegation_scores
+        return _RoleOutcome(
+            delegation_scores={d.id: fixed.get(d.id) for d in delegations},
+            delegate_results={},
+            criteria={d.id: {c.id: None for c in rubric.criteria} for d in delegations},
+        )
     scores = list(role.scores)
     if role.per_delegation:
         ids = [d.id for d in delegations]
@@ -150,7 +168,7 @@ def rank_delegations_by_role(
         role: _role_outcome(rubric, delegations, r, session_ids) for role, r in roles.items()
     }
     tiebreak_id = rubric.tiebreak_criterion().id
-    account_outcomes = {role: outcomes[role] for role, r in roles.items() if not r.per_delegation}
+    account_outcomes = {role: outcomes[role] for role, r in roles.items() if not r.by_delegation}
 
     rows: list[
         tuple[Delegation, Decimal | None, dict[str, Decimal | None], dict[str, Decimal | None]]

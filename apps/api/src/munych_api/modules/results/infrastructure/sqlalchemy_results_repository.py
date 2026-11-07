@@ -28,11 +28,11 @@ from munych_api.shared.database.tables import (
     committee_judges,
     committees,
     criteria,
-    delegate_votes,
     delegates,
     delegations,
     events,
     judges,
+    peer_votes,
     public_results,
     result_snapshots,
     rubrics,
@@ -131,14 +131,10 @@ class SqlAlchemyResultsRepository:
         )
         vote_rows = await self._session.execute(
             select(
-                delegate_votes.c.voter_delegate_id,
-                delegate_votes.c.delegation_id,
-                delegate_votes.c.session_id,
-                delegate_votes.c.criterion_id,
-                delegate_votes.c.value,
-            )
-            .join(scoring_sessions, scoring_sessions.c.id == delegate_votes.c.session_id)
-            .where(scoring_sessions.c.committee_id == committee_id)
+                peer_votes.c.voter_delegate_id,
+                peer_votes.c.delegation_id,
+                peer_votes.c.award_type,
+            ).where(peer_votes.c.committee_id == committee_id)
         )
 
         return CommitteeData(
@@ -177,10 +173,7 @@ class SqlAlchemyResultsRepository:
             ),
             event_type=row.event_type,
             peer_votes=tuple(
-                PeerVoteValue(
-                    v.voter_delegate_id, v.delegation_id, v.session_id, v.criterion_id, v.value
-                )
-                for v in vote_rows
+                PeerVoteValue(v.voter_delegate_id, v.delegation_id, v.award_type) for v in vote_rows
             ),
         )
 

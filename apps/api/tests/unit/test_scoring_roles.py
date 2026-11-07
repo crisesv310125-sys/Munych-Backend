@@ -7,11 +7,13 @@ from pathlib import Path
 import pytest
 
 from munych_api.scoring_engine import (
+    AwardVote,
     Criterion,
     Delegation,
     RoleScores,
     Rubric,
     ScoreEntry,
+    peer_award_scores,
     rank_delegations,
     rank_delegations_by_role,
     weighted_combination,
@@ -147,6 +149,40 @@ def test_weighted_combination() -> None:
     assert weighted_combination({"a": Decimal(10), "b": Decimal(20)}, weights) == Decimal(17)
     assert weighted_combination({"a": None, "b": Decimal(20)}, weights) == Decimal(20)
     assert weighted_combination({"a": None, "b": None}, weights) is None
+
+
+def test_peer_award_scores_3_2_1_over_max_points() -> None:
+    votes = [
+        AwardVote("v1", "MX", "best_delegate"),
+        AwardVote("v1", "US", "outstanding_delegate"),
+        AwardVote("v1", "BR", "honorable_mention"),
+        AwardVote("v2", "US", "best_delegate"),
+        AwardVote("v2", "MX", "outstanding_delegate"),
+    ]
+    scores = peer_award_scores(votes, ["MX", "US", "BR", "FR"])
+    # Máximo: 2 votantes × 3 puntos = 6.
+    assert scores == {
+        "MX": Decimal(5) * 100 / 6,
+        "US": Decimal(5) * 100 / 6,
+        "BR": Decimal(1) * 100 / 6,
+        "FR": Decimal(0),
+    }
+
+
+def test_peer_award_scores_without_voters_is_none() -> None:
+    assert peer_award_scores([], ["MX"]) == {"MX": None}
+
+
+def test_fixed_delegation_scores_mix_with_other_roles() -> None:
+    roles = {
+        "chair": RoleScores(Decimal(30), (ScoreEntry("mesa", "ana", S1, "c", 8),)),
+        "delegate": RoleScores(Decimal(50), (), delegation_scores={"MX": Decimal(40)}),
+    }
+    (row,) = rank_delegations_by_role(RUBRIC_10, [MX], roles, [S1])
+    # (30·80 + 50·40) / 80 = 55; el voto de pares no toca las medias por criterio.
+    assert row.score == Decimal(55)
+    assert row.criteria_averages == {"c": Decimal(8)}  # en la escala de la rúbrica
+    assert row.delegates[0].final_score == Decimal(80)
 
 
 def test_role_weight_must_be_positive() -> None:

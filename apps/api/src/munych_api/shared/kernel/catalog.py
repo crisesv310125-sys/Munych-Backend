@@ -105,6 +105,21 @@ AWARD_LABELS: dict[AwardType, str] = {
     "verbal_commendation": "Mención verbal",
 }
 
+PeerAwardType = Literal["best_delegate", "outstanding_delegate", "honorable_mention"]
+"""Premios que votan los delegados entre pares (sin mención verbal)."""
+
+PEER_AWARD_TYPES: tuple[PeerAwardType, ...] = (
+    "best_delegate",
+    "outstanding_delegate",
+    "honorable_mention",
+)
+
+PEER_AWARD_LABELS: dict[PeerAwardType, str] = {
+    "best_delegate": "Mejor delegado",
+    "outstanding_delegate": "Delegado distinguido",
+    "honorable_mention": "Mención de honor",
+}
+
 # TODO(cliente): confirmar premios automáticos (MVP: manuales; los cupos solo avisan).
 DEFAULT_AWARD_QUOTAS: dict[CommitteeType, dict[AwardType, int]] = {
     "general_assembly": {

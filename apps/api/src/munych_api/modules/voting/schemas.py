@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
-from munych_api.shared.kernel.catalog import EventStatus
+from munych_api.shared.kernel.catalog import EventStatus, PeerAwardType
 
 TokenStatus = Literal["none", "active", "revoked", "expired"]
 
@@ -25,7 +25,7 @@ class VoterAccessOut(BaseModel):
     status: TokenStatus
     issued_at: datetime | None
     last_used_at: datetime | None
-    votes_count: int = Field(description="Votos (celdas criterio × delegación) que ha emitido")
+    votes_count: int = Field(description="Premios que ha votado (0 si aún no envía su boleta)")
 
 
 class GenerateTokensIn(BaseModel):
@@ -73,22 +73,40 @@ class RevokeTokensOut(BaseModel):
     revoked: int
 
 
+# ---------------------------------------------------------------- ventana del voto entre pares
+
+PeerVoteStatus = Literal["not_scheduled", "scheduled", "open", "closed"]
+"""Estado del voto entre pares de un comité, derivado de sus fechas y del evento."""
+
+
+class PeerVoteWindowOut(BaseModel):
+    status: PeerVoteStatus
+    opens_at: datetime | None
+    closes_at: datetime | None = Field(description="null: abierto hasta que el admin lo cierre")
+
+
+class PeerVoteWindowIn(BaseModel):
+    """Abre o programa el voto entre pares de un comité."""
+
+    opens_at: datetime | None = Field(
+        default=None, description="Apertura. null: ahora mismo (hora del servidor)"
+    )
+    closes_at: datetime | None = Field(
+        default=None, description="Cierre programado. null: hasta que el admin lo cierre"
+    )
+
+
+class CommitteePeerVoteOut(PeerVoteWindowOut):
+    """Estado del voto entre pares de un comité, para el admin."""
+
+    committee_id: UUID
+    committee_name: str
+    committee_acronym: str
+    voters: int = Field(description="Delegados del comité")
+    submitted: int = Field(description="Delegados que ya enviaron su voto")
+
+
 # ---------------------------------------------------------------- boleta (delegado)
-
-
-class BallotCriterionOut(BaseModel):
-    id: UUID
-    name: str
-    description: str | None
-    weight: float
-    position: int
-    level_descriptors: dict[str, str]
-
-
-class BallotRubricOut(BaseModel):
-    scale_min: int
-    scale_max: int
-    criteria: list[BallotCriterionOut]
 
 
 class BallotDelegationOut(BaseModel):
@@ -97,20 +115,21 @@ class BallotDelegationOut(BaseModel):
     character_name: str | None
 
 
-class BallotVoteOut(BaseModel):
+class BallotAwardOut(BaseModel):
+    """Un premio de la boleta, en el orden en que se vota."""
+
+    award_type: PeerAwardType
+    label: str
+    points: int
+
+
+class BallotPickOut(BaseModel):
+    award_type: PeerAwardType
     delegation_id: UUID
-    criterion_id: UUID
-    value: int
-
-
-class BallotSessionOut(BaseModel):
-    session_id: UUID
-    number: int
-    opened_at: datetime | None
 
 
 class BallotOut(BaseModel):
-    """Lo que ve el delegado: por quién puede votar y sus votos de la sesión abierta."""
+    """Boleta entre pares: el delegado elige una delegación por premio, una sola vez."""
 
     voter_name: str
     own_delegation: BallotDelegationOut
@@ -118,23 +137,22 @@ class BallotOut(BaseModel):
     event_status: EventStatus
     committee_name: str
     committee_acronym: str
-    open_session: BallotSessionOut | None = Field(
-        description="La sesión en la que caen los votos. null: no hay sesión abierta"
+    sessions_total: int = Field(description="Sesiones previstas del comité")
+    sessions_closed: int = Field(description="Sesiones del comité ya cerradas")
+    peer_vote: PeerVoteWindowOut
+    weight: float = Field(description="Peso (%) del voto de los delegados en el puntaje final")
+    awards: list[BallotAwardOut] = Field(
+        description="Premios a votar, en orden. Menos de 3 si el comité tiene pocas delegaciones"
     )
-    rubric: BallotRubricOut | None
     delegations: list[BallotDelegationOut] = Field(
         description="Delegaciones por las que puede votar (todas las del comité menos la suya)"
     )
-    votes: list[BallotVoteOut] = Field(description="Sus votos en la sesión abierta")
+    picks: list[BallotPickOut] = Field(description="Su voto enviado. Vacío si aún no vota")
+    submitted_at: datetime | None
+    receipt: str | None = Field(description="Comprobante del voto enviado, p. ej. AG-7K2Q-91")
 
 
-class VoteIn(BaseModel):
-    delegation_id: UUID
-    criterion_id: UUID
-    value: int
+class PeerVotesIn(BaseModel):
+    """El voto completo: una delegación por premio, todas distintas. No se puede cambiar."""
 
-
-class VotesIn(BaseModel):
-    """Votos de la sesión abierta. El servidor decide la sesión; el celular no la manda."""
-
-    items: list[VoteIn] = Field(min_length=1, max_length=2000)
+    picks: list[BallotPickOut] = Field(min_length=1, max_length=3)

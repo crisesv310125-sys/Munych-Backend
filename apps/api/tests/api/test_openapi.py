@@ -61,7 +61,11 @@ EXPECTED_OPERATIONS = {
     ("POST", "/api/v1/events/{event_id}/voter-tokens"): "generate_voter_tokens",
     ("POST", "/api/v1/events/{event_id}/voter-tokens/revoke"): "revoke_voter_tokens",
     ("GET", "/api/v1/vote/ballot"): "get_ballot",
-    ("PUT", "/api/v1/vote/ballot"): "submit_votes",
+    # Voto entre pares por premios (2026-11-06).
+    ("POST", "/api/v1/vote/ballot"): "submit_peer_vote",
+    ("GET", "/api/v1/events/{event_id}/peer-vote"): "list_peer_vote_windows",
+    ("PUT", "/api/v1/committees/{committee_id}/peer-vote"): "open_peer_vote",
+    ("POST", "/api/v1/committees/{committee_id}/peer-vote/close"): "close_peer_vote",
 }
 
 

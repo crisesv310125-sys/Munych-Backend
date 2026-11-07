@@ -9,11 +9,13 @@ from munych_api.modules.results.domain.models import (
     RankingEntry,
 )
 from munych_api.scoring_engine import (
+    AwardVote,
     Criterion,
     Delegation,
     RoleScores,
     Rubric,
     ScoreEntry,
+    peer_award_scores,
     rank_delegations_by_role,
 )
 from munych_api.shared.kernel.catalog import EVENT_TYPES, VoterRole
@@ -39,26 +41,24 @@ def role_inputs(data: CommitteeData) -> dict[str, RoleScores]:
                     s.value,
                 )
             )
-    if "delegate" in by_role:
-        # El delegado vota por la delegación: va en `delegate_id` del motor.
-        by_role["delegate"] = [
-            ScoreEntry(
-                str(v.voter_delegate_id),
-                str(v.delegation_id),
-                str(v.session_id),
-                str(v.criterion_id),
-                v.value,
+    roles: dict[str, RoleScores] = {}
+    for role, entries in by_role.items():
+        if role == "delegate":
+            # Los delegados votan por premios (3/2/1 puntos), no con la rúbrica.
+            roles[role] = RoleScores(
+                weight=config.voter_weights[role],
+                scores=(),
+                delegation_scores=peer_award_scores(
+                    (
+                        AwardVote(str(v.voter_delegate_id), str(v.delegation_id), v.award_type)
+                        for v in data.peer_votes
+                    ),
+                    [str(d.id) for d in data.delegations],
+                ),
             )
-            for v in data.peer_votes
-        ]
-    return {
-        role: RoleScores(
-            weight=config.voter_weights[role],
-            scores=tuple(entries),
-            per_delegation=role == "delegate",
-        )
-        for role, entries in by_role.items()
-    }
+        else:
+            roles[role] = RoleScores(weight=config.voter_weights[role], scores=tuple(entries))
+    return roles
 
 
 def rank_committee(data: CommitteeData) -> list[RankingEntry]:

@@ -17,6 +17,7 @@ from munych_api.scoring_engine.models import (
     ScoreEntry,
     present,
 )
+from munych_api.scoring_engine.peer_awards import AWARD_POINTS, AwardVote, peer_award_scores
 from munych_api.scoring_engine.ranking import criteria_averages, rank_delegations
 from munych_api.scoring_engine.roles import (
     RoleScores,
@@ -27,6 +28,8 @@ from munych_api.scoring_engine.session_score import weighted_score
 from munych_api.scoring_engine.weights import InvalidWeightsError, validate_weights
 
 __all__ = [
+    "AWARD_POINTS",
+    "AwardVote",
     "Criterion",
     "DelegateResult",
     "Delegation",
@@ -39,6 +42,7 @@ __all__ = [
     "ScoreEntry",
     "criteria_averages",
     "delegate_results",
+    "peer_award_scores",
     "present",
     "rank_delegations",
     "rank_delegations_by_role",

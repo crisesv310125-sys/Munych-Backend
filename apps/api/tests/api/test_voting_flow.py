@@ -1,7 +1,8 @@
 """Votación de un MUN regular de extremo a extremo contra la BD local (ADR-005).
 
 Evento mun_regular → comité con 3 delegaciones → mesa y staff asignados → accesos
-de delegados → votar (sin votar por la propia) → ranking ponderado por rol.
+de delegados → abrir el voto entre pares → votar premios (sin votar por la propia,
+una sola vez) → ranking ponderado por rol.
 """
 
 import uuid
@@ -134,67 +135,101 @@ async def test_mun_regular_voting_flow(client: AsyncClient, engine: AsyncEngine)
     assert stored == 0  # en la base solo está el hash
 
     mx = bearer(tokens["MX"])
-    # 2. Boleta: todas las delegaciones menos la propia; sin sesión abierta (evento en borrador).
+    # 2. Boleta entre pares: todas las delegaciones menos la propia; con 2 candidatas
+    #    se votan 2 premios. La votación aún no abre (sin programar).
     ballot = _ok(await client.get(f"{API}/vote/ballot", headers=mx))
     assert ballot["own_delegation"]["country_code"] == "MX"
     assert {d["country_code"] for d in ballot["delegations"]} == {"US", "FR"}
-    assert ballot["open_session"] is None
-    criteria = [c["id"] for c in ballot["rubric"]["criteria"]]
+    assert ballot["peer_vote"]["status"] == "not_scheduled"
+    assert ballot["weight"] == 50.0
+    assert [a["award_type"] for a in ballot["awards"]] == ["best_delegate", "outstanding_delegate"]
+    assert ballot["picks"] == []
+    assert ballot["receipt"] is None
 
-    def votes(code: str, value: int) -> dict[str, Any]:
+    def picks(best: str, outstanding: str) -> dict[str, Any]:
         return {
-            "items": [
-                {"delegation_id": delegations[code]["id"], "criterion_id": c, "value": value}
-                for c in criteria
+            "picks": [
+                {"award_type": "best_delegate", "delegation_id": delegations[best]["id"]},
+                {
+                    "award_type": "outstanding_delegate",
+                    "delegation_id": delegations[outstanding]["id"],
+                },
             ]
         }
 
-    waiting = await client.put(f"{API}/vote/ballot", headers=mx, json=votes("US", 4))
+    waiting = await client.post(f"{API}/vote/ballot", headers=mx, json=picks("US", "FR"))
     assert waiting.json()["code"] == "SESSION_CLOSED"
 
     _ok(await client.patch(f"{API}/events/{event_id}", headers=ADMIN, json={"status": "active"}))
     _ok(await client.post(f"{API}/committees/{committee_id}/sessions/1/open", headers=ADMIN))
+    window = _ok(
+        await client.put(f"{API}/committees/{committee_id}/peer-vote", headers=ADMIN, json={})
+    )
+    assert window["status"] == "open"
 
-    # 3. No se vota por la propia delegación, ni siquiera llamando a la API.
-    own = await client.put(f"{API}/vote/ballot", headers=mx, json=votes("MX", 4))
+    # 3. No se vota por la propia delegación, ni dos premios a la misma, ni a medias.
+    own = await client.post(f"{API}/vote/ballot", headers=mx, json=picks("MX", "FR"))
     assert (own.status_code, own.json()["code"]) == (403, "FORBIDDEN")
+    twice = await client.post(f"{API}/vote/ballot", headers=mx, json=picks("US", "US"))
+    assert twice.status_code == 422
+    partial = await client.post(
+        f"{API}/vote/ballot", headers=mx, json={"picks": picks("US", "FR")["picks"][:1]}
+    )
+    assert partial.status_code == 422
 
-    voted = _ok(await client.put(f"{API}/vote/ballot", headers=mx, json=votes("US", 4)))
-    assert voted["open_session"]["number"] == 1
-    assert len(voted["votes"]) == len(criteria)
-    # Reenviar corrige el voto, no lo duplica.
-    _ok(await client.put(f"{API}/vote/ballot", headers=mx, json=votes("US", 3)))
-    _ok(await client.put(f"{API}/vote/ballot", headers=mx, json=votes("FR", 2)))
-    _ok(await client.put(f"{API}/vote/ballot", headers=bearer(tokens["FR"]), json=votes("US", 4)))
-    async with engine.connect() as conn:
-        count = await conn.scalar(
-            text(
-                "select count(*) from app.delegate_votes v join app.delegates d"
-                " on d.id = v.voter_delegate_id where d.delegation_id = :d"
-            ),
-            {"d": delegations["MX"]["id"]},
+    voted = _ok(await client.post(f"{API}/vote/ballot", headers=mx, json=picks("US", "FR")))
+    assert [p["award_type"] for p in voted["picks"]] == ["best_delegate", "outstanding_delegate"]
+    assert voted["receipt"].startswith("CS-")
+    # Una vez enviado no se puede cambiar.
+    again_vote = await client.post(f"{API}/vote/ballot", headers=mx, json=picks("FR", "US"))
+    assert (again_vote.status_code, again_vote.json()["code"]) == (409, "CONFLICT")
+    _ok(
+        await client.post(
+            f"{API}/vote/ballot", headers=bearer(tokens["FR"]), json=picks("US", "MX")
         )
-    assert count == 2 * len(criteria)
+    )
+    windows = _ok(await client.get(f"{API}/events/{event_id}/peer-vote", headers=ADMIN))
+    assert (windows[0]["voters"], windows[0]["submitted"]) == (3, 2)
 
-    # 4. Defensa en profundidad: el trigger también rechaza el voto por la propia delegación.
+    # 4. Defensa en profundidad: el trigger rechaza el voto por la propia delegación
+    #    y el voto enviado no se puede modificar.
     async with engine.connect() as conn:
-        session_id = voted["open_session"]["session_id"]
         with pytest.raises(DBAPIError, match="propia delegación"):
             await conn.execute(
                 text(
-                    "insert into app.delegate_votes"
-                    " (voter_delegate_id, delegation_id, session_id, criterion_id, value)"
-                    " values (:v, :d, :s, :c, 4)"
+                    "insert into app.peer_votes"
+                    " (voter_delegate_id, committee_id, award_type, delegation_id)"
+                    " values (:v, :c, 'honorable_mention', :d)"
                 ),
                 {
-                    "v": delegations["MX"]["delegate"],
-                    "d": delegations["MX"]["id"],
-                    "s": session_id,
-                    "c": criteria[0],
+                    "v": delegations["US"]["delegate"],
+                    "c": committee_id,
+                    "d": delegations["US"]["id"],
                 },
             )
+    async with engine.connect() as conn:
+        with pytest.raises(DBAPIError, match="solo inserción"):
+            await conn.execute(
+                text("update app.peer_votes set delegation_id = delegation_id where true")
+            )
+
+    # Cerrar: ya no se vota.
+    closed = _ok(
+        await client.post(f"{API}/committees/{committee_id}/peer-vote/close", headers=ADMIN)
+    )
+    assert closed["status"] == "closed"
+    late = await client.post(
+        f"{API}/vote/ballot", headers=bearer(tokens["US"]), json=picks("MX", "FR")
+    )
+    assert late.json()["code"] == "SESSION_CLOSED"
 
     # 5. Mesa y staff califican con el flujo de siempre; el juez queda rechazado.
+    session_id = _ok(await client.get(f"{API}/committees/{committee_id}/sessions", headers=ADMIN))[
+        0
+    ]["id"]
+    rubric = _ok(await client.get(f"{API}/events/{event_id}/rubrics", headers=ADMIN))[0]
+    criteria = [c["id"] for c in rubric["criteria"]]
+
     def batch(value: int) -> dict[str, Any]:
         return {
             "items": [
@@ -225,12 +260,13 @@ async def test_mun_regular_voting_flow(client: AsyncClient, engine: AsyncEngine)
     assert ranking["event_type"] == "mun_regular"
     assert ranking["role_weights"] == {"chair": 30.0, "delegate": 50.0, "staff": 20.0}
     by_code = {e["country_code"]: e for e in ranking["items"]}
-    # US: mesa 100, delegados media(75, 100) = 87.5, staff 50 → 30 + 43.75 + 10 = 83.75
-    assert by_code["US"]["role_scores"] == {"chair": 100.0, "delegate": 87.5, "staff": 50.0}
-    assert by_code["US"]["score"] == 83.75
-    # MX: nadie votó por MX → su 50 % se reparte: (30·100 + 20·50) / 50 = 80
-    assert by_code["MX"]["role_scores"]["delegate"] is None
-    assert by_code["MX"]["score"] == 80.0
+    # Pares (2 votantes, máx. 6 puntos): US 3+3 = 100; MX 2 y FR 2 = 33.33.
+    # US: 30·100 + 50·100 + 20·50 = 90
+    assert by_code["US"]["role_scores"] == {"chair": 100.0, "delegate": 100.0, "staff": 50.0}
+    assert by_code["US"]["score"] == 90.0
+    # MX: 30·100 + 50·33.33 + 20·50 = 56.67
+    assert by_code["MX"]["role_scores"]["delegate"] == 33.33
+    assert by_code["MX"]["score"] == 56.67
     assert ranking["items"][0]["country_code"] == "US"
 
     # 7. Revocar: el acceso deja de servir de inmediato.

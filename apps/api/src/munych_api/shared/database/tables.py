@@ -136,6 +136,8 @@ committees = Table(
     Column("sessions_count", Integer, nullable=False),
     Column("rubric_id", UUID(as_uuid=True), ForeignKey("app.rubrics.id")),
     Column("award_quotas", JSONB, nullable=False),
+    Column("peer_vote_opens_at", DateTime(timezone=True)),
+    Column("peer_vote_closes_at", DateTime(timezone=True)),
     *_timestamps(),
     schema="app",
 )
@@ -226,16 +228,15 @@ voter_tokens = Table(
     schema="app",
 )
 
-delegate_votes = Table(
-    "delegate_votes",
+peer_votes = Table(
+    "peer_votes",
     metadata,
     _id(),
     Column("voter_delegate_id", UUID(as_uuid=True), ForeignKey("app.delegates.id"), nullable=False),
+    Column("committee_id", UUID(as_uuid=True), ForeignKey("app.committees.id"), nullable=False),
+    Column("award_type", Text, nullable=False),
     Column("delegation_id", UUID(as_uuid=True), ForeignKey("app.delegations.id"), nullable=False),
-    Column("session_id", UUID(as_uuid=True), ForeignKey("app.scoring_sessions.id"), nullable=False),
-    Column("criterion_id", UUID(as_uuid=True), ForeignKey("app.criteria.id"), nullable=False),
-    Column("value", SmallInteger, nullable=False),
-    *_timestamps(),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     schema="app",
 )
 

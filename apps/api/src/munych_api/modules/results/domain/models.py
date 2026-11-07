@@ -12,6 +12,7 @@ from munych_api.shared.kernel.catalog import (
     AwardType,
     CommitteeType,
     EventType,
+    PeerAwardType,
     VoterRole,
 )
 
@@ -73,13 +74,11 @@ class ScoreValue:
 
 @dataclass(frozen=True, slots=True)
 class PeerVoteValue:
-    """Voto de un delegado a otra delegación de su comité."""
+    """Premio que un delegado da a otra delegación de su comité (voto entre pares)."""
 
     voter_delegate_id: UUID
     delegation_id: UUID
-    session_id: UUID
-    criterion_id: UUID
-    value: int
+    award_type: PeerAwardType
 
 
 @dataclass(frozen=True, slots=True)

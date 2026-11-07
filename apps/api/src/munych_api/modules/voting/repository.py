@@ -4,22 +4,18 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import func, insert, select, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from munych_api.shared.database.tables import (
     committees,
-    criteria,
-    delegate_votes,
     delegates,
     delegations,
     events,
-    rubrics,
+    peer_votes,
     scoring_sessions,
     voter_tokens,
 )
-
-_rubric_id = func.coalesce(committees.c.rubric_id, events.c.default_rubric_id)
 
 
 class VotingRepository:
@@ -63,8 +59,8 @@ class VotingRepository:
             .subquery()
         )
         votes = (
-            select(delegate_votes.c.voter_delegate_id, func.count().label("votes_count"))
-            .group_by(delegate_votes.c.voter_delegate_id)
+            select(peer_votes.c.voter_delegate_id, func.count().label("votes_count"))
+            .group_by(peer_votes.c.voter_delegate_id)
             .subquery()
         )
         query = (
@@ -140,7 +136,6 @@ class VotingRepository:
                         committees.c.id.label("committee_id"),
                         committees.c.name.label("committee_name"),
                         committees.c.acronym.label("committee_acronym"),
-                        _rubric_id.label("rubric_id"),
                         events.c.id.label("event_id"),
                         events.c.name.label("event_name"),
                         events.c.status.label("event_status"),
@@ -163,34 +158,6 @@ class VotingRepository:
             update(voter_tokens).where(voter_tokens.c.id == token_id).values(last_used_at=now)
         )
 
-    async def rubric(self, rubric_id: UUID) -> dict[str, Any] | None:
-        row = (
-            (
-                await self._session.execute(
-                    select(rubrics.c.scale_min, rubrics.c.scale_max).where(
-                        rubrics.c.id == rubric_id
-                    )
-                )
-            )
-            .mappings()
-            .first()
-        )
-        if row is None:
-            return None
-        criterion_rows = await self._session.execute(
-            select(
-                criteria.c.id,
-                criteria.c.name,
-                criteria.c.description,
-                criteria.c.weight,
-                criteria.c.position,
-                criteria.c.level_descriptors,
-            )
-            .where(criteria.c.rubric_id == rubric_id)
-            .order_by(criteria.c.position)
-        )
-        return {**dict(row), "criteria": [dict(c) for c in criterion_rows.mappings()]}
-
     async def committee_delegations(self, committee_id: UUID) -> list[dict[str, Any]]:
         rows = await self._session.execute(
             select(delegations.c.id, delegations.c.country_code, delegations.c.character_name)
@@ -203,22 +170,120 @@ class VotingRepository:
         )
         return [dict(r) for r in rows.mappings()]
 
-    async def open_session(self, committee_id: UUID) -> dict[str, Any] | None:
-        """La sesión abierta del comité (si hubiera varias, la de número mayor)."""
+    async def committee_progress(self, committee_id: UUID) -> dict[str, Any]:
+        """Ventana del voto entre pares y avance de sesiones del comité."""
+        closed = (
+            select(func.count())
+            .where(
+                scoring_sessions.c.committee_id == committee_id,
+                scoring_sessions.c.status == "closed",
+                scoring_sessions.c.closed_at.is_not(None),
+            )
+            .scalar_subquery()
+        )
         row = (
             (
                 await self._session.execute(
                     select(
-                        scoring_sessions.c.id,
-                        scoring_sessions.c.number,
-                        scoring_sessions.c.opened_at,
+                        committees.c.sessions_count,
+                        committees.c.peer_vote_opens_at,
+                        committees.c.peer_vote_closes_at,
+                        closed.label("sessions_closed"),
+                    ).where(committees.c.id == committee_id)
+                )
+            )
+            .mappings()
+            .one()
+        )
+        return dict(row)
+
+    async def picks(self, voter_delegate_id: UUID) -> list[dict[str, Any]]:
+        rows = await self._session.execute(
+            select(
+                peer_votes.c.id,
+                peer_votes.c.award_type,
+                peer_votes.c.delegation_id,
+                peer_votes.c.created_at,
+            ).where(peer_votes.c.voter_delegate_id == voter_delegate_id)
+        )
+        return [dict(r) for r in rows.mappings()]
+
+    async def insert_picks(
+        self, voter_delegate_id: UUID, committee_id: UUID, picks: Sequence[tuple[str, UUID]]
+    ) -> bool:
+        """Guarda el voto completo. False si el delegado ya había votado (otra pestaña)."""
+        try:
+            async with self._session.begin_nested():
+                await self._session.execute(
+                    insert(peer_votes),
+                    [
+                        {
+                            "voter_delegate_id": voter_delegate_id,
+                            "committee_id": committee_id,
+                            "award_type": award_type,
+                            "delegation_id": delegation_id,
+                        }
+                        for award_type, delegation_id in picks
+                    ],
+                )
+        except IntegrityError:
+            return False
+        return True
+
+    # ------------------------------------------------------------ ventana (admin)
+
+    async def event_committees(self, event_id: UUID) -> list[dict[str, Any]]:
+        """Comités del evento con su ventana de voto, delegados y votantes que ya enviaron."""
+        voters = (
+            select(delegations.c.committee_id, func.count(delegates.c.id).label("voters"))
+            .join(delegates, delegates.c.delegation_id == delegations.c.id)
+            .group_by(delegations.c.committee_id)
+            .subquery()
+        )
+        submitted = (
+            select(
+                peer_votes.c.committee_id,
+                func.count(func.distinct(peer_votes.c.voter_delegate_id)).label("submitted"),
+            )
+            .group_by(peer_votes.c.committee_id)
+            .subquery()
+        )
+        rows = await self._session.execute(
+            select(
+                committees.c.id.label("committee_id"),
+                committees.c.name.label("committee_name"),
+                committees.c.acronym.label("committee_acronym"),
+                committees.c.peer_vote_opens_at,
+                committees.c.peer_vote_closes_at,
+                func.coalesce(voters.c.voters, 0).label("voters"),
+                func.coalesce(submitted.c.submitted, 0).label("submitted"),
+            )
+            .outerjoin(voters, voters.c.committee_id == committees.c.id)
+            .outerjoin(submitted, submitted.c.committee_id == committees.c.id)
+            .where(committees.c.event_id == event_id)
+            .order_by(committees.c.name)
+        )
+        return [dict(r) for r in rows.mappings()]
+
+    async def committee_event(
+        self, committee_id: UUID, organization_id: UUID
+    ) -> dict[str, Any] | None:
+        row = (
+            (
+                await self._session.execute(
+                    select(
+                        committees.c.id.label("committee_id"),
+                        committees.c.peer_vote_opens_at,
+                        committees.c.peer_vote_closes_at,
+                        events.c.id.label("event_id"),
+                        events.c.status,
+                        events.c.event_type,
                     )
+                    .join(events, events.c.id == committees.c.event_id)
                     .where(
-                        scoring_sessions.c.committee_id == committee_id,
-                        scoring_sessions.c.status == "open",
+                        committees.c.id == committee_id,
+                        events.c.organization_id == organization_id,
                     )
-                    .order_by(scoring_sessions.c.number.desc())
-                    .limit(1)
                 )
             )
             .mappings()
@@ -226,46 +291,13 @@ class VotingRepository:
         )
         return dict(row) if row else None
 
-    async def votes(self, voter_delegate_id: UUID, session_id: UUID) -> list[dict[str, Any]]:
-        rows = await self._session.execute(
-            select(
-                delegate_votes.c.delegation_id,
-                delegate_votes.c.criterion_id,
-                delegate_votes.c.value,
-            )
-            .where(
-                delegate_votes.c.voter_delegate_id == voter_delegate_id,
-                delegate_votes.c.session_id == session_id,
-            )
-            .order_by(delegate_votes.c.delegation_id, delegate_votes.c.criterion_id)
-        )
-        return [dict(r) for r in rows.mappings()]
-
-    async def upsert_votes(
-        self, voter_delegate_id: UUID, session_id: UUID, items: Sequence[tuple[UUID, UUID, int]]
+    async def set_window(
+        self, committee_id: UUID, opens_at: datetime | None, closes_at: datetime | None
     ) -> None:
-        """Un voto por (votante, delegación, sesión, criterio): reenviar lo corrige."""
-        stmt = pg_insert(delegate_votes).values(
-            [
-                {
-                    "voter_delegate_id": voter_delegate_id,
-                    "delegation_id": delegation_id,
-                    "session_id": session_id,
-                    "criterion_id": criterion_id,
-                    "value": value,
-                }
-                for delegation_id, criterion_id, value in items
-            ]
-        )
         await self._session.execute(
-            stmt.on_conflict_do_update(
-                index_elements=[
-                    delegate_votes.c.voter_delegate_id,
-                    delegate_votes.c.delegation_id,
-                    delegate_votes.c.session_id,
-                    delegate_votes.c.criterion_id,
-                ],
-                set_={"value": stmt.excluded.value},
-                where=delegate_votes.c.value != stmt.excluded.value,
+            update(committees)
+            .where(committees.c.id == committee_id)
+            .values(
+                peer_vote_opens_at=opens_at, peer_vote_closes_at=closes_at, updated_at=func.now()
             )
         )
