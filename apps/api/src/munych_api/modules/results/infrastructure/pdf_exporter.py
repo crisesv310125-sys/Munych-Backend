@@ -8,14 +8,22 @@ Se genera con reportlab (Python puro, sin dependencias del sistema). Usa las fue
 estándar del PDF (Times, Helvetica y Courier) para no tener que incrustar archivos; la
 muestra usa Playfair Display, Inter y una monoespaciada, y se parece bastante.
 
-Privacidad: los nombres siguen el formato de la publicación del evento (por defecto,
-nombre e inicial del apellido: hay menores). Nunca incluye jueces ni comentarios.
+Las casillas de la pantalla Exportar (`ExportOptions`) añaden, por comité:
+- «Desglose por criterio»: la media de cada criterio de la rúbrica por delegación, y las
+  calificaciones por delegado, sesión y juez.
+- «Nombre del juez»: el nombre real en esas calificaciones (si no, «Juez 1», «Juez 2»…).
+- «Comentarios de los jueces»: sus comentarios junto a cada calificación.
+
+Privacidad: los nombres de los delegados siguen el formato de la publicación (por defecto,
+nombre e inicial del apellido: hay menores). Con nombres de jueces o comentarios, la portada
+avisa de que es un documento interno.
 """
 
 import io
 from collections.abc import Sequence
 from datetime import date, datetime
 from decimal import Decimal
+from uuid import UUID
 from xml.sax.saxutils import escape
 from zoneinfo import ZoneInfo
 
@@ -40,9 +48,13 @@ from reportlab.platypus import (
     TableStyle,
 )
 
-from munych_api.modules.results.application.ports import CommitteeResults, ExportData
+from munych_api.modules.results.application.ports import (
+    CommitteeResults,
+    ExportData,
+    ScoreDetail,
+)
 from munych_api.modules.results.domain.awards import sort_awards
-from munych_api.modules.results.domain.models import Award, NameFormat, RankingEntry
+from munych_api.modules.results.domain.models import Award, NameFormat, RankingEntry, RubricInfo
 from munych_api.modules.results.domain.public_view import format_name
 from munych_api.scoring_engine import present
 from munych_api.shared.kernel.catalog import (
@@ -67,6 +79,7 @@ CHIP_BG = colors.HexColor("#EDF0F4")
 FIRST_ROW = colors.HexColor("#FCFAF1")
 GOLD = colors.HexColor("#C9A227")
 TIE_BG = colors.HexColor("#FBF1CF")
+WARN_BG = colors.HexColor("#FBF3DE")
 # Los mismos colores como texto, para el marcado de Paragraph.
 NAVY_HEX, INK_HEX, MUTED_HEX, GOLD_HEX = "#14304F", "#1F2A37", "#5F6F82", "#C9A227"
 CHIP_BG_HEX, TIE_BG_HEX = "#EDF0F4", "#FBF1CF"
@@ -121,6 +134,10 @@ S_LABEL = _style("label", fontSize=6.5, leading=8, textColor=MUTED)
 S_VALUE = _style("value", fontSize=9, leading=11)
 S_RIGHT_MUTED = _style("right_muted", textColor=MUTED, fontSize=8, alignment=TA_RIGHT)
 S_ACRONYM = _style("acronym", fontName=MONO, fontSize=6.5, textColor=MUTED)
+S_POS = _style("rpos", fontName=MONO, fontSize=8.5, textColor=NAVY, alignment=1)
+S_WARNING = _style("warning", fontSize=8, leading=11, textColor=colors.HexColor("#6B500C"))
+S_SMALL = _style("small", fontSize=7.5, leading=9.5)
+S_SMALL_MUTED = _style("small_muted", fontSize=7, leading=9, textColor=MUTED)
 
 NO_AWARDS_TEXT = "Sin premios asignados en este comité. El ranking se publica igualmente."
 
@@ -219,6 +236,17 @@ def delegation_markup(entry: RankingEntry, *, muted: bool = False) -> str:
     return text
 
 
+def detail_delegation_markup(label: str) -> str:
+    """Delegación del detalle de calificaciones: llega como código ISO o nombre de personaje."""
+    if len(label) == 2 and label.isupper() and label in _COUNTRIES:
+        chip = (
+            f'<font name="{MONO}" size="6" color="{NAVY_HEX}" backColor="{CHIP_BG_HEX}">'
+            f"&nbsp;{e(label)}&nbsp;</font>"
+        )
+        return f"{chip}&nbsp;{e(country_name(label))}"
+    return e(label or "—")
+
+
 # ---------------------------------------------------------------- piezas
 
 
@@ -243,16 +271,22 @@ class Monogram(Flowable):  # type: ignore[misc]  # reportlab no trae tipos
 
 
 def data_table(
-    header: Sequence[str], rows: list[list[object]], widths: Sequence[float], *, right: set[int]
+    header: Sequence[str],
+    rows: list[list[object]],
+    widths: Sequence[float],
+    *,
+    right: set[int],
+    compact: bool = False,
 ) -> Table:
-    head = [p(h, S_HEAD_R if i in right else S_HEAD) for i, h in enumerate(header)]
+    head = [p(e(h), S_HEAD_R if i in right else S_HEAD) for i, h in enumerate(header)]
     table = Table([head, *rows], colWidths=list(widths), repeatRows=1)
+    padding = 2.5 if compact else 5
     table.setStyle(
         TableStyle(
             [
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("TOPPADDING", (0, 0), (-1, -1), 5),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ("TOPPADDING", (0, 0), (-1, -1), padding),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), padding),
                 ("LEFTPADDING", (0, 0), (-1, -1), 4),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 4),
                 ("LINEBELOW", (0, 0), (-1, 0), 0.8, BORDER),
@@ -415,6 +449,7 @@ class PdfExporter:
             HRFlowable(width="100%", thickness=2.4, color=NAVY, spaceAfter=18),
             p(e(data.event_name), S_TITLE),
             Spacer(1, 10),
+            *self._warning_box(data),
             info_boxes(
                 [
                     ("Sede", data.venue or "—"),
@@ -459,7 +494,7 @@ class PdfExporter:
         awards = sum(len(self._awards(c)) for c in data.committees)
         story += [
             event_type,
-            Spacer(1, 16),
+            Spacer(1, 12),
             stats(
                 [
                     (len(data.committees), "Comités"),
@@ -467,7 +502,7 @@ class PdfExporter:
                     (awards, "Premios asignados"),
                 ]
             ),
-            Spacer(1, 22),
+            Spacer(1, 14),
         ]
 
         heading = Table(
@@ -549,19 +584,70 @@ class PdfExporter:
         else:
             story.append(p("Todavía no hay premios asignados.", S_MUTED))
 
-        story += [
-            Spacer(1, 18),
-            HRFlowable(width="100%", thickness=0.6, color=BORDER, spaceAfter=8),
-        ]
         notes = [("Pos.", "orden dentro del mismo premio cuando hay varios")]
         if include_scores:
             notes.append(("Nota", self._score_note(data.event_type)))
+        # Las notas van juntas (si no caben, pasan enteras a la página siguiente).
         story += [
-            note_line(notes),
-            Spacer(1, 3),
-            note_line([("Nombres", NAME_NOTES[data.name_format])]),
+            Spacer(1, 12),
+            KeepTogether(
+                [
+                    HRFlowable(width="100%", thickness=0.6, color=BORDER, spaceAfter=6),
+                    note_line(notes),
+                    Spacer(1, 3),
+                    note_line(
+                        [
+                            ("Nombres", NAME_NOTES[data.name_format]),
+                            ("Contenido", self._contents(data)),
+                        ]
+                    ),
+                ]
+            ),
         ]
         return story
+
+    def _warning_box(self, data: ExportData) -> list[Flowable]:
+        warning = self._internal_warning(data)
+        if not warning:
+            return []
+        box = Table([[p(warning, S_WARNING)]], colWidths=[CONTENT_W], cornerRadii=[5] * 4)
+        box.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), WARN_BG),
+                    ("TOPPADDING", (0, 0), (-1, -1), 7),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                ]
+            )
+        )
+        return [box, Spacer(1, 8)]
+
+    @staticmethod
+    def _contents(data: ExportData) -> str:
+        opts = data.options
+        parts = ["resumen de premiación", "ranking por comité"]
+        if opts.include_details:
+            parts.append("desglose por criterio")
+        if opts.include_details or opts.include_comments or opts.include_judge_names:
+            parts.append("calificaciones por sesión")
+        return ", ".join(parts)
+
+    @staticmethod
+    def _internal_warning(data: ExportData) -> str:
+        """Aviso cuando el acta trae datos privados de los jueces (casillas de Exportar)."""
+        opts = data.options
+        private = []
+        if opts.include_judge_names:
+            private.append("los nombres de los jueces")
+        if opts.include_comments:
+            private.append("los comentarios de los jueces")
+        if not private:
+            return ""
+        return (
+            f"<b>Documento interno.</b> Incluye {' y '.join(private)}. "
+            "No lo publiques ni lo compartas con delegados o instituciones."
+        )
 
     # ------------------------------------------------------------ comité
 
@@ -638,31 +724,7 @@ class PdfExporter:
         ]
 
         entries = {entry.delegation.id: entry for entry in ranking}
-        if awards:
-            chips = "&nbsp;&nbsp;&nbsp;&nbsp;".join(
-                award_markup(
-                    a.award_type, f"&nbsp;—&nbsp;{e(delegation_name(entries[a.delegation_id]))}"
-                )
-                for a in awards
-            )
-            story.append(p(chips, _style("chips", fontName=SANS_BOLD, fontSize=8, leading=14)))
-        else:
-            callout = Table(
-                [[p(NO_AWARDS_TEXT, S_MUTED)]],
-                colWidths=[CONTENT_W],
-                cornerRadii=[5, 5, 5, 5],
-            )
-            callout.setStyle(
-                TableStyle(
-                    [
-                        ("BOX", (0, 0), (-1, -1), 0.7, colors.HexColor("#C9D1DB"), 1, (2, 2)),
-                        ("TOPPADDING", (0, 0), (-1, -1), 8),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
-                        ("LEFTPADDING", (0, 0), (-1, -1), 10),
-                    ]
-                )
-            )
-            story.append(callout)
+        story.append(self._awards_line(awards, entries))
 
         double = any(len(entry.delegates) > 1 for entry in ranking)
         subtitle = ("Delegaciones dobles · " if double else "") + "ordenado por nota final"
@@ -722,6 +784,14 @@ class PdfExporter:
         else:
             story.append(p("Este comité no tiene delegaciones.", S_MUTED))
 
+        opts = data.options
+        rubric = committee.rubric
+        if opts.include_details and rubric is not None and rubric.criteria and ranking:
+            story += self._criteria_breakdown(committee, rubric, include_scores=include_scores)
+        details = [d for d in data.details if self._belongs(d, committee)]
+        if details and (opts.include_details or opts.include_comments or opts.include_judge_names):
+            story += self._score_details(details, rubric, data)
+
         if last:
             notes = [
                 ("Emp.", "delegaciones empatadas: comparten posición"),
@@ -740,7 +810,142 @@ class PdfExporter:
             ]
         return story
 
+    @staticmethod
+    def _awards_line(awards: list[Award], entries: dict[UUID, RankingEntry]) -> Flowable:
+        """Premios del comité en una línea, o el aviso punteado si no tiene."""
+        if awards:
+            chips = "&nbsp;&nbsp;&nbsp;&nbsp;".join(
+                award_markup(
+                    a.award_type, f"&nbsp;—&nbsp;{e(delegation_name(entries[a.delegation_id]))}"
+                )
+                for a in awards
+            )
+            return p(chips, _style("chips", fontName=SANS_BOLD, fontSize=8, leading=14))
+        callout = Table(
+            [[p(NO_AWARDS_TEXT, S_MUTED)]], colWidths=[CONTENT_W], cornerRadii=[5, 5, 5, 5]
+        )
+        callout.setStyle(
+            TableStyle(
+                [
+                    ("BOX", (0, 0), (-1, -1), 0.7, colors.HexColor("#C9D1DB"), 1, (2, 2)),
+                    ("TOPPADDING", (0, 0), (-1, -1), 8),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                ]
+            )
+        )
+        return callout
+
+    # ------------------------------------------------------------ desglose y calificaciones
+
+    @staticmethod
+    def _section_title(title: str, subtitle: str) -> list[Flowable]:
+        return [
+            CondPageBreak(120),
+            Spacer(1, 20),
+            p(
+                f'{e(title)}&nbsp;&nbsp;&nbsp;<font name="{SANS}" size="7.5" color="{MUTED_HEX}">'
+                f"{e(subtitle)}</font>",
+                _style("section", fontName=SERIF_BOLD, fontSize=11, textColor=NAVY),
+            ),
+            Spacer(1, 3),
+        ]
+
+    def _criteria_breakdown(
+        self, committee: CommitteeResults, rubric: RubricInfo, *, include_scores: bool
+    ) -> list[Flowable]:
+        """Media de cada criterio de la rúbrica por delegación (casilla «Desglose por criterio»)."""
+        criteria = sorted(rubric.criteria, key=lambda c: c.position)
+        subtitle = (
+            f"media de las calificaciones de cada criterio · escala {rubric.scale_min}–"
+            f"{rubric.scale_max} · entre paréntesis, su peso"
+        )
+        header = ["POS.", "DELEGACIÓN"]
+        header += [f"{c.name} ({c.weight.normalize():f} %)".upper() for c in criteria]
+        fixed = [32, 128] + ([46] if include_scores else [])
+        width = (CONTENT_W - sum(fixed)) / len(criteria)
+        widths = fixed[:2] + [width] * len(criteria) + fixed[2:]
+        if include_scores:
+            header.append("NOTA")
+        small_r = _style("crit_v", fontSize=8, alignment=TA_RIGHT)
+        rows: list[list[object]] = []
+        for entry in committee.ranking:
+            row: list[object] = [
+                p("–" if entry.score is None else str(entry.position), S_POS),
+                p(delegation_markup(entry, muted=entry.score is None)),
+            ]
+            for c in criteria:
+                value = entry.criteria_averages.get(c.id)
+                row.append(p("—" if value is None else f"{present(value):.2f}", small_r))
+            if include_scores:
+                no_score = entry.score is None
+                row.append(p(score_text(entry.score), S_RIGHT_MUTED if no_score else S_SCORE))
+            rows.append(row)
+        right = set(range(2, len(header)))
+        return [
+            *self._section_title("Desglose por criterio", subtitle),
+            data_table(header, rows, widths, right=right),
+        ]
+
+    def _score_details(
+        self, details: list[ScoreDetail], rubric: RubricInfo | None, data: ExportData
+    ) -> list[Flowable]:
+        """Calificaciones por delegado, sesión y juez (con nombres y comentarios si se piden)."""
+        opts = data.options
+        if rubric is not None and rubric.criteria:
+            criteria = [c.name for c in sorted(rubric.criteria, key=lambda c: c.position)]
+        else:
+            criteria = list(dict.fromkeys(d.criterion for d in details))
+        # Una fila por delegado × sesión × juez, en el orden del repositorio.
+        groups: dict[tuple[str, str, int, str], dict[str, ScoreDetail]] = {}
+        for d in details:
+            groups.setdefault((d.delegation, d.delegate, d.session_number, d.judge), {})[
+                d.criterion
+            ] = d
+        judges = "nombre del juez" if opts.include_judge_names else "jueces numerados por comité"
+        subtitle = f"{len(details)} calificaciones · {judges}"
+        if opts.include_comments:
+            subtitle += " · con comentarios"
+
+        header = ["DELEGACIÓN", "DELEGADO", "SES.", "JUEZ"] + [c.upper() for c in criteria]
+        fixed_left = [84, 62, 24, 66]
+        comments_w = 118 if opts.include_comments else 0
+        width = max(34.0, (CONTENT_W - sum(fixed_left) - comments_w) / max(1, len(criteria)))
+        widths = fixed_left + [width] * len(criteria)
+        if opts.include_comments:
+            header.append("COMENTARIOS")
+            widths.append(CONTENT_W - sum(widths))
+        value_style = _style("dv", fontSize=7.5, alignment=TA_RIGHT)
+        rows: list[list[object]] = []
+        for (delegation, delegate, session, judge), cells in groups.items():
+            row: list[object] = [
+                p(detail_delegation_markup(delegation), S_SMALL),
+                p(e(format_name(delegate, data.name_format) or "—"), S_SMALL),
+                p(str(session), _style("ds", fontName=MONO, fontSize=7.5, alignment=1)),
+                p(e(judge), S_SMALL),
+            ]
+            row += [p(str(cells[c].value) if c in cells else "—", value_style) for c in criteria]
+            if opts.include_comments:
+                notes = [
+                    f'<font name="{SANS_BOLD}">{e(c)}:</font> {e(cells[c].comment)}'
+                    for c in criteria
+                    if c in cells and cells[c].comment
+                ]
+                row.append(p("<br/>".join(notes), S_SMALL_MUTED))
+            rows.append(row)
+        right = set(range(4, 4 + len(criteria)))
+        return [
+            *self._section_title("Calificaciones por sesión", subtitle),
+            data_table(header, rows, widths, right=right, compact=True),
+        ]
+
     # ------------------------------------------------------------ utilidades
+
+    @staticmethod
+    def _belongs(detail: ScoreDetail, committee: CommitteeResults) -> bool:
+        if detail.committee_id is not None:
+            return detail.committee_id == committee.committee.id
+        return detail.committee == committee.committee.name
 
     @staticmethod
     def _awards(committee: CommitteeResults) -> list[Award]:

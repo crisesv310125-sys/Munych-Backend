@@ -385,8 +385,14 @@ async def test_export_options_filter_and_anonymize(repo: InMemoryResultsReposito
     assert {d.comment for d in exporter.data.details} == {None}
     assert exporter.data.options == options
 
-    await use_case.execute(ORG, EVENT_ID, ExportOptions(include_details=False))
+    nothing = ExportOptions(
+        include_details=False, include_comments=False, include_judge_names=False
+    )
+    await use_case.execute(ORG, EVENT_ID, nothing)
     assert exporter.data.details == []
+    # Para mostrar jueces o comentarios (acta en PDF) también se carga el detalle.
+    await use_case.execute(ORG, EVENT_ID, ExportOptions(include_details=False))
+    assert len(exporter.data.details) == 3
 
     await use_case.execute(ORG, EVENT_ID, ExportOptions(committee_ids=frozenset({uuid.uuid4()})))
     assert exporter.data.committees == []

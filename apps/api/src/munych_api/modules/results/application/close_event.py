@@ -45,6 +45,7 @@ async def committees_results(
                 ranking=rank_committee(data),
                 awards=await repository.get_awards(committee_id),
                 event_type=data.event_type,
+                rubric=data.rubric,
             )
         )
     return results

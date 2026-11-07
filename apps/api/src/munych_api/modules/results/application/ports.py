@@ -13,6 +13,7 @@ from munych_api.modules.results.domain.models import (
     NameFormat,
     PublicationSettings,
     RankingEntry,
+    RubricInfo,
 )
 from munych_api.shared.kernel.catalog import DEFAULT_EVENT_TYPE, EventType
 
@@ -48,6 +49,8 @@ class CommitteeResults:
     ranking: list[RankingEntry]
     awards: list[Award]
     event_type: EventType = DEFAULT_EVENT_TYPE
+    rubric: RubricInfo | None = None
+    """Rúbrica del comité: nombres, pesos y escala de los criterios (desglose del acta)."""
 
 
 @dataclass(frozen=True, slots=True)

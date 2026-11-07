@@ -256,9 +256,12 @@ async def export_event_pdf(
     """Acta de resultados oficial (según la muestra de MUNYCH).
 
     Portada con los datos del evento y el resumen de premiación; luego una sección por
-    comité con sus premios y su ranking. Los nombres siguen el formato de la publicación
-    (por defecto, nombre e inicial). Respeta `committee_id` e `include_scores`; nunca
-    incluye jueces ni comentarios.
+    comité con sus premios y su ranking. Los nombres de los delegados siguen el formato de
+    la publicación (por defecto, nombre e inicial). Respeta todas las opciones:
+    `include_details` añade el desglose por criterio y las calificaciones por sesión,
+    `include_judge_names` los nombres de los jueces (si no, «Juez N») e `include_comments`
+    sus comentarios; con jueces o comentarios, la portada avisa de que es un documento
+    interno. ⚠️ Por defecto todo es `true`: el panel siempre manda sus casillas.
     """
     return _download(await use_case.execute(organization_id, event_id, options))
 

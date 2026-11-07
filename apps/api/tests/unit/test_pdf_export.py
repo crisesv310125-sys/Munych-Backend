@@ -3,6 +3,7 @@
 import re
 import uuid
 from collections.abc import Iterator
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
@@ -13,14 +14,17 @@ from munych_api.modules.results.application.ports import (
     CommitteeResults,
     ExportData,
     ExportOptions,
+    ScoreDetail,
 )
 from munych_api.modules.results.domain.models import (
     Award,
     CommitteeInfo,
+    CriterionInfo,
     DelegateScore,
     DelegationInfo,
     NameFormat,
     RankingEntry,
+    RubricInfo,
 )
 from munych_api.modules.results.infrastructure.pdf_exporter import (
     PdfExporter,
@@ -147,6 +151,92 @@ def test_user_text_is_escaped() -> None:
     # los signos en trozos aparte: «(<) Tj (i) Tj (>) Tj (Rey)…»).
     assert b"(<) Tj (i) Tj (>) Tj (Rey)" in content
     assert b"(<) Tj (b) Tj (>) Tj (Ana)" in content
+
+
+ORATORIA = CriterionInfo(uuid.uuid4(), "Oratoria", Decimal(60), 1)
+REDACCION = CriterionInfo(uuid.uuid4(), "Redaccion", Decimal(40), 2)
+
+
+def with_breakdown(options: ExportOptions) -> ExportData:
+    """Un comité con rúbrica, medias por criterio y calificaciones de dos jueces."""
+    base = data(committees=1, options=options)
+    committee = base.committees[0]
+    ranking = [
+        RankingEntry(
+            position=r.position,
+            tied=r.tied,
+            delegation=r.delegation,
+            delegates=r.delegates,
+            score=r.score,
+            criteria_averages={ORATORIA.id: Decimal("3.25"), REDACCION.id: Decimal("2.5")},
+        )
+        for r in committee.ranking
+    ]
+    details = [
+        ScoreDetail(
+            committee=committee.committee.name,
+            committee_id=committee.committee.id,
+            delegation="BR",
+            delegate="Diego Hernandez Ruiz",
+            institution=None,
+            session_number=1,
+            judge=judge,
+            criterion=criterion,
+            value=3,
+            comment="Muy convincente" if criterion == "Oratoria" else None,
+            updated_at=datetime(2026, 11, 15, 15, 0, tzinfo=UTC),
+        )
+        for judge in ("Laura Mendez", "Juez 2")
+        for criterion in ("Oratoria", "Redaccion")
+    ]
+    rubric = RubricInfo(1, 4, (ORATORIA, REDACCION))
+    return replace(
+        base,
+        committees=[
+            CommitteeResults(committee.committee, ranking, committee.awards, "mun_regular", rubric)
+        ],
+        details=details,
+    )
+
+
+def test_every_export_checkbox_adds_its_section() -> None:
+    content = PdfExporter().export(with_breakdown(ExportOptions()))
+    for text in (
+        b"Desglose por criterio",
+        b"ORATORIA \\(60 %\\)",
+        b"3.25",
+        b"Calificaciones por sesi",
+        b"Laura Mendez",
+        b"Muy convincente",
+        b"Documento interno.",
+    ):
+        assert text in content, text
+    assert b"Hernandez" not in content  # el delegado sigue como «Diego H.»
+
+
+def test_without_the_checkboxes_the_acta_stays_public() -> None:
+    options = ExportOptions(
+        include_details=False, include_comments=False, include_judge_names=False
+    )
+    content = PdfExporter().export(with_breakdown(options))
+    for text in (
+        b"Desglose por criterio",
+        b"Calificaciones por sesi",
+        b"Laura",
+        b"Muy convincente",
+    ):
+        assert text not in content, text
+    assert b"Documento interno." not in content
+
+
+def test_breakdown_without_judges_or_comments() -> None:
+    options = ExportOptions(include_comments=False, include_judge_names=False)
+    content = PdfExporter().export(with_breakdown(options))
+    assert b"Desglose por criterio" in content
+    assert b"Calificaciones por sesi" in content
+    assert b"Muy convincente" not in content
+    assert b"COMENTARIOS" not in content
+    assert b"Documento interno." not in content
 
 
 @pytest.mark.parametrize(

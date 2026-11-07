@@ -58,7 +58,9 @@ class ExportEvent:
         if options.committee_ids is not None:
             committees = [c for c in committees if c.committee.id in options.committee_ids]
         details: list[ScoreDetail] = []
-        if options.include_details:
+        # El detalle hace falta para el desglose y también para mostrar jueces o comentarios
+        # (el XLSX solo lo usa con include_details; el acta en PDF, con cualquiera de los tres).
+        if options.include_details or options.include_comments or options.include_judge_names:
             names = {c.committee.name for c in committees}
             ids = {c.committee.id for c in committees}
             details = [
