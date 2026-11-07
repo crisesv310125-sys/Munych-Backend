@@ -1,9 +1,11 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 
+from munych_api.modules.voting.access_sheet import PDF_MEDIA_TYPE
 from munych_api.modules.voting.dependencies import CurrentVoter, VotingServiceDep
 from munych_api.modules.voting.schemas import (
+    AccessSheetIn,
     BallotOut,
     CommitteePeerVoteOut,
     GeneratedTokenOut,
@@ -46,6 +48,36 @@ async def generate_voter_tokens(
     regenera esos accesos y revoca los anteriores.
     """
     return await service.generate(organization_id, event_id, body, user.user_id)
+
+
+@router.post(
+    "/events/{event_id}/voter-tokens/sheet.pdf",
+    response_class=Response,
+    responses={200: {"content": {PDF_MEDIA_TYPE: {}}, "description": "Hoja de accesos"}},
+)
+async def voter_access_sheet(
+    event_id: UUID,
+    body: AccessSheetIn,
+    _: AdminUser,
+    organization_id: OrganizationId,
+    service: VotingServiceDep,
+) -> Response:
+    """Hoja imprimible (PDF) de los accesos recién generados, según la muestra de MUNYCH.
+
+    Carta, agrupada por comité, 9 tarjetas recortables por hoja: QR, nombre, delegación y
+    código de respaldo. El panel manda los accesos que acaba de recibir de
+    `POST /voter-tokens`; solo se imprimen si siguen vigentes (422 si alguno se regeneró
+    o revocó). No guarda nada.
+    """
+    content = await service.access_sheet(organization_id, event_id, body.items)
+    return Response(
+        content=content,
+        media_type=PDF_MEDIA_TYPE,
+        headers={
+            "Content-Disposition": 'attachment; filename="accesos-votacion.pdf"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.post("/events/{event_id}/voter-tokens/revoke")

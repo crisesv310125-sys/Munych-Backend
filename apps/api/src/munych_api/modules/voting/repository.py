@@ -30,6 +30,8 @@ class VotingRepository:
                 await self._session.execute(
                     select(
                         events.c.id,
+                        events.c.name,
+                        events.c.brand,
                         events.c.status,
                         events.c.event_type,
                         events.c.ends_on,
@@ -40,6 +42,26 @@ class VotingRepository:
             .first()
         )
         return dict(row) if row else None
+
+    async def active_tokens(
+        self, event_id: UUID, delegate_ids: Sequence[UUID]
+    ) -> dict[UUID, dict[str, Any]]:
+        """Acceso vigente (no revocado) de cada delegado: hashes y vencimiento."""
+        if not delegate_ids:
+            return {}
+        rows = await self._session.execute(
+            select(
+                voter_tokens.c.delegate_id,
+                voter_tokens.c.token_hash,
+                voter_tokens.c.code_hash,
+                voter_tokens.c.expires_at,
+            ).where(
+                voter_tokens.c.event_id == event_id,
+                voter_tokens.c.delegate_id.in_(delegate_ids),
+                voter_tokens.c.revoked_at.is_(None),
+            )
+        )
+        return {r.delegate_id: dict(r._mapping) for r in rows}
 
     async def event_delegates(
         self, event_id: UUID, delegate_ids: Sequence[UUID] | None = None

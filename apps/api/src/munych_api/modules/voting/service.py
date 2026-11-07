@@ -10,8 +10,15 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
+from munych_api.modules.voting.access_sheet import (
+    AccessCard,
+    delegation_label,
+    render_access_sheet,
+    sort_key,
+)
 from munych_api.modules.voting.repository import VotingRepository
 from munych_api.modules.voting.schemas import (
+    AccessSheetItemIn,
     BallotAwardOut,
     BallotDelegationOut,
     BallotOut,
@@ -202,6 +209,73 @@ class VotingService:
             )
         await self._repo.insert_tokens(rows)
         return generated
+
+    async def access_sheet(
+        self, organization_id: UUID, event_id: UUID, items: list[AccessSheetItemIn]
+    ) -> bytes:
+        """Hoja imprimible (PDF) de los accesos recién generados.
+
+        Solo se imprimen accesos vigentes: el token y el código deben ser los del acceso
+        no revocado ni vencido de cada delegado (si se regeneró, el anterior no sirve).
+        Los nombres, delegaciones y comités salen de la base, no de lo que manda el panel.
+        """
+        event = await self._require_event(organization_id, event_id)
+        wanted = list(dict.fromkeys(item.delegate_id for item in items))
+        rows = {r["delegate_id"]: r for r in await self._repo.event_delegates(event_id, wanted)}
+        if len(rows) != len(wanted):
+            raise NotFoundError("Algún delegado no pertenece a este evento")
+        active = await self._repo.active_tokens(event_id, wanted)
+        now = self._clock.now()
+        by_delegate = {item.delegate_id: item for item in items}
+        for delegate_id, item in by_delegate.items():
+            token = active.get(delegate_id)
+            code = normalize_code(item.code)
+            local = item.url.startswith(("http://localhost", "http://127.0.0.1"))
+            if (
+                token is None
+                or token["expires_at"] <= now
+                or token["token_hash"] != hash_token(item.token)
+                or code is None
+                or token["code_hash"] != hash_code(code)
+                or not item.url.endswith(item.token)
+                or not (item.url.startswith("https://") or local)
+            ):
+                name = rows[delegate_id]["full_name"]
+                raise DomainError(
+                    ErrorCode.VALIDATION_ERROR,
+                    f"El acceso de {name} ya no es válido (se regeneró o revocó). "
+                    "Genera los accesos de nuevo y descarga la hoja en ese momento",
+                )
+
+        cards = []
+        for delegate_id, item in by_delegate.items():
+            r = rows[delegate_id]
+            cards.append(
+                (
+                    AccessCard(
+                        full_name=r["full_name"],
+                        delegation=delegation_label(r["country_code"], r["character_name"]),
+                        committee_name=r["committee_name"],
+                        committee_acronym=r["committee_acronym"],
+                        url=item.url,
+                        code=item.code.strip().upper(),
+                    ),
+                    item.token,
+                )
+            )
+        cards.sort(
+            key=lambda pair: (
+                sort_key(pair[0].committee_name),
+                sort_key(pair[0].delegation),
+                sort_key(pair[0].full_name),
+            )
+        )
+        return render_access_sheet(
+            event_name=event["name"],
+            brand=event["brand"],
+            cards=[card for card, _ in cards],
+            tokens=[token for _, token in cards],
+        )
 
     async def revoke(self, organization_id: UUID, event_id: UUID, delegate_ids: list[UUID]) -> int:
         await self._require_event(organization_id, event_id)

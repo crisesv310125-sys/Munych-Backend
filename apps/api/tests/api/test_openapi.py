@@ -70,6 +70,7 @@ EXPECTED_OPERATIONS = {
     ("GET", "/api/v1/events/{event_id}/export.csv"): "export_event_csv",
     ("PUT", "/api/v1/committees/{committee_id}/tiebreak"): "set_committee_tiebreak",
     ("GET", "/api/v1/events/{event_id}/export.pdf"): "export_event_pdf",
+    ("POST", "/api/v1/events/{event_id}/voter-tokens/sheet.pdf"): "voter_access_sheet",
 }
 
 

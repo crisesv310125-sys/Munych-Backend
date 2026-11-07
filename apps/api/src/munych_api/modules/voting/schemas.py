@@ -69,6 +69,21 @@ class GeneratedTokenOut(BaseModel):
     expires_at: datetime
 
 
+class AccessSheetItemIn(BaseModel):
+    """Un acceso recién generado (tal como llegó de `POST /voter-tokens`)."""
+
+    delegate_id: UUID
+    token: Annotated[str, Field(min_length=20, max_length=64)]
+    code: Annotated[str, Field(min_length=10, max_length=20)]
+    url: Annotated[str, Field(min_length=10, max_length=400)]
+
+
+class AccessSheetIn(BaseModel):
+    """Accesos para la hoja imprimible. Se comprueba que cada uno sea el vigente."""
+
+    items: list[AccessSheetItemIn] = Field(min_length=1, max_length=5000)
+
+
 class RevokeTokensIn(BaseModel):
     delegate_ids: list[UUID] = Field(min_length=1, max_length=5000)
 
