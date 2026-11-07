@@ -10,10 +10,11 @@ from uuid import UUID
 import pytest
 
 from munych_api.modules.results.application.close_event import CloseEvent
-from munych_api.modules.results.application.compute_ranking import ComputeRanking
+from munych_api.modules.results.application.compute_ranking import ComputeRanking, SetTiebreak
 from munych_api.modules.results.application.export_event import ExportEvent
 from munych_api.modules.results.application.ports import (
     ExportData,
+    ExportOptions,
     PublicResult,
     ScoreDetail,
 )
@@ -65,6 +66,7 @@ class InMemoryResultsRepository:
         self.snapshots: list[dict[str, Any]] = []
         self.public: PublicResult | None = None
         self.log: list[str] = []
+        self.tiebreak: list[UUID] = []
 
     def _data(self) -> CommitteeData:
         return CommitteeData(
@@ -82,7 +84,11 @@ class InMemoryResultsRepository:
             sessions=(SessionInfo(SESSION_ID, 1),),
             delegations=(MX,),
             scores=(ScoreValue(JUDGE, ANA.id, SESSION_ID, CRITERION_ID, 3),),
+            tiebreak_order=tuple(self.tiebreak),
         )
+
+    async def set_tiebreak_order(self, committee_id: UUID, order: list[UUID]) -> None:
+        self.tiebreak = list(order)
 
     async def committee_data(
         self, committee_id: UUID, organization_id: UUID
@@ -119,7 +125,7 @@ class InMemoryResultsRepository:
         return self.snapshots[-1] if self.snapshots else None
 
     async def score_details(self, event_id: UUID) -> list[ScoreDetail]:
-        return []
+        return list(getattr(self, "details", []))
 
     async def save_publication_settings(
         self, event_id: UUID, settings: PublicationSettings
@@ -321,3 +327,67 @@ async def test_export_uses_exporter(repo: InMemoryResultsRepository) -> None:
     with pytest.raises(DomainError) as exc:
         await ExportEvent(repo, exporter, FixedClock()).execute(ORG, uuid.uuid4())
     assert exc.value.code == ErrorCode.NOT_FOUND
+
+
+async def test_set_tiebreak_validates_and_saves(repo: InMemoryResultsRepository) -> None:
+    use_case = SetTiebreak(repo)
+    ranking = await use_case.execute(ORG, COMMITTEE_ID, [MX.id, MX.id])
+    assert repo.tiebreak == [MX.id]  # sin repetidos
+    assert ranking.items[0].delegation == MX
+
+    with pytest.raises(DomainError) as exc:
+        await use_case.execute(ORG, COMMITTEE_ID, [uuid.uuid4()])
+    assert exc.value.code == ErrorCode.NOT_FOUND
+    with pytest.raises(DomainError) as exc:
+        await use_case.execute(ORG, uuid.uuid4(), [])
+    assert exc.value.code == ErrorCode.NOT_FOUND
+
+    await repo.close_event(EVENT_ID)
+    with pytest.raises(DomainError) as exc:
+        await use_case.execute(ORG, COMMITTEE_ID, [])
+    assert exc.value.code == ErrorCode.EVENT_CLOSED
+
+
+def _detail(judge: str, comment: str | None, committee_id: UUID | None = None) -> ScoreDetail:
+    return ScoreDetail(
+        committee="Asamblea",
+        delegation="MX",
+        delegate="Ana",
+        institution=None,
+        session_number=1,
+        judge=judge,
+        criterion="Oratoria",
+        value=4,
+        comment=comment,
+        updated_at=datetime(2026, 10, 10, 15, 0, tzinfo=UTC),
+        committee_id=committee_id or COMMITTEE_ID,
+    )
+
+
+async def test_export_options_filter_and_anonymize(repo: InMemoryResultsRepository) -> None:
+    repo.details = [  # type: ignore[attr-defined]
+        _detail("Laura", "privado"),
+        _detail("Carlos", None),
+        _detail("Laura", "otro"),
+        _detail("Otro comité", None, uuid.uuid4()),
+    ]
+    exporter = RecordingExporter()
+    use_case = ExportEvent(repo, exporter, FixedClock())
+
+    await use_case.execute(ORG, EVENT_ID)  # por defecto, todo como antes
+    assert exporter.data is not None
+    assert [d.judge for d in exporter.data.details] == ["Laura", "Carlos", "Laura"]
+    assert exporter.data.details[0].comment == "privado"
+
+    options = ExportOptions(include_comments=False, include_judge_names=False)
+    await use_case.execute(ORG, EVENT_ID, options)
+    assert [d.judge for d in exporter.data.details] == ["Juez 1", "Juez 2", "Juez 1"]
+    assert {d.comment for d in exporter.data.details} == {None}
+    assert exporter.data.options == options
+
+    await use_case.execute(ORG, EVENT_ID, ExportOptions(include_details=False))
+    assert exporter.data.details == []
+
+    await use_case.execute(ORG, EVENT_ID, ExportOptions(committee_ids=frozenset({uuid.uuid4()})))
+    assert exporter.data.committees == []
+    assert exporter.data.details == []

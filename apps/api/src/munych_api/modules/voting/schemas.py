@@ -60,6 +60,10 @@ class GeneratedTokenOut(BaseModel):
     committee_name: str
     committee_acronym: str
     token: str
+    code: str = Field(
+        description="Código corto de respaldo (p. ej. K7M2Q-9XH4T) para escribirlo a mano "
+        "si la cámara no lee el QR. Sirve igual que el token; solo llega aquí, una vez."
+    )
     url: str
     qr_svg: str = Field(description="QR del enlace como SVG en línea")
     expires_at: datetime
@@ -134,6 +138,7 @@ class BallotOut(BaseModel):
     voter_name: str
     own_delegation: BallotDelegationOut
     event_name: str
+    event_slug: str = Field(description="Para enlazar a los resultados públicos del evento")
     event_status: EventStatus
     committee_name: str
     committee_acronym: str

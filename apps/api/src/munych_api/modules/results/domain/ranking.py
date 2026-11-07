@@ -1,5 +1,7 @@
 """Ranking del comité: adapta el motor puro a las entidades del dominio."""
 
+from collections.abc import Sequence
+from dataclasses import replace
 from uuid import UUID
 
 from munych_api.modules.results.domain.models import (
@@ -61,6 +63,44 @@ def role_inputs(data: CommitteeData) -> dict[str, RoleScores]:
     return roles
 
 
+def apply_manual_tiebreak(
+    entries: Sequence[RankingEntry], order: Sequence[UUID]
+) -> list[RankingEntry]:
+    """Resuelve los empates que el admin decidió (los empates los decide el admin).
+
+    Un grupo empatado (misma posición, con nota) se ordena según `order` solo si el admin
+    ordenó a **todas** sus delegaciones; si no, sigue empatado. Las delegaciones de `order`
+    que ya no están empatadas (p. ej. porque cambiaron las notas) se ignoran.
+    """
+    if not order:
+        return list(entries)
+    rank = {delegation_id: i for i, delegation_id in enumerate(order)}
+    result: list[RankingEntry] = []
+    i = 0
+    while i < len(entries):
+        group = [entries[i]]
+        while (
+            i + len(group) < len(entries)
+            and entries[i + len(group)].tied
+            and entries[i + len(group)].position == entries[i].position
+        ):
+            group.append(entries[i + len(group)])
+        start = entries[i].position
+        if (
+            len(group) > 1
+            and group[0].score is not None
+            and all(e.delegation.id in rank for e in group)
+        ):
+            group.sort(key=lambda e: rank[e.delegation.id])
+            group = [
+                replace(e, position=start + k, tied=False, manual_tiebreak=True)
+                for k, e in enumerate(group)
+            ]
+        result.extend(group)
+        i += len(group)
+    return result
+
+
 def rank_committee(data: CommitteeData) -> list[RankingEntry]:
     """Ranking por nota de la delegación (ponderada por rol) con el desempate de la sección 6.3."""
     delegations = {d.id: d for d in data.delegations}
@@ -93,7 +133,7 @@ def rank_committee(data: CommitteeData) -> list[RankingEntry]:
         role_inputs(data),
         [str(s.id) for s in sorted(data.sessions, key=lambda s: s.number)],
     )
-    return [
+    entries = [
         RankingEntry(
             position=row.position,
             tied=row.tied,
@@ -117,3 +157,4 @@ def rank_committee(data: CommitteeData) -> list[RankingEntry]:
         )
         for row in rows
     ]
+    return apply_manual_tiebreak(entries, data.tiebreak_order)

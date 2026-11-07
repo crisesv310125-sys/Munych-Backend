@@ -1,6 +1,6 @@
 """Puertos del módulo de resultados (los implementa `infrastructure/`)."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any, Protocol
 from uuid import UUID
@@ -37,6 +37,7 @@ class ScoreDetail:
     value: int
     comment: str | None
     updated_at: datetime
+    committee_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +45,25 @@ class CommitteeResults:
     committee: CommitteeInfo
     ranking: list[RankingEntry]
     awards: list[Award]
+
+
+@dataclass(frozen=True, slots=True)
+class ExportOptions:
+    """Qué incluir en la exportación (pantalla Exportar del panel).
+
+    Por defecto, todo: así se comporta igual que antes de tener opciones.
+    """
+
+    committee_ids: frozenset[UUID] | None = None
+    """Comités a exportar; `None` = todos los del evento."""
+    include_scores: bool = True
+    """Nota final ponderada (y nota por rol) en el resumen y en los rankings."""
+    include_details: bool = True
+    """Hoja «Detalle»: cada calificación por sesión, juez y criterio."""
+    include_comments: bool = True
+    """Comentarios de los jueces en el detalle (son privados)."""
+    include_judge_names: bool = True
+    """Nombre del juez en el detalle; si no, «Juez 1», «Juez 2»… por comité."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +76,7 @@ class ExportData:
     generated_at: datetime
     committees: list[CommitteeResults]
     details: list[ScoreDetail]
+    options: ExportOptions = field(default_factory=ExportOptions)
 
 
 class ResultsRepository(Protocol):
@@ -65,6 +86,10 @@ class ResultsRepository(Protocol):
     ) -> CommitteeData | None: ...
 
     async def get_awards(self, committee_id: UUID) -> list[Award]: ...
+
+    async def set_tiebreak_order(self, committee_id: UUID, order: list[UUID]) -> None:
+        """Guarda el desempate manual del comité (reemplaza el anterior)."""
+        ...
 
     async def replace_awards(
         self, committee_id: UUID, awards: list[Award], assigned_by: UUID, assigned_at: datetime

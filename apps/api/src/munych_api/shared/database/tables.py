@@ -20,8 +20,9 @@ from sqlalchemy import (
     Table,
     Text,
     func,
+    text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 
 metadata = MetaData()
 
@@ -138,6 +139,10 @@ committees = Table(
     Column("award_quotas", JSONB, nullable=False),
     Column("peer_vote_opens_at", DateTime(timezone=True)),
     Column("peer_vote_closes_at", DateTime(timezone=True)),
+    # Desempate manual del admin (2026-11-07): orden de las delegaciones empatadas.
+    Column(
+        "tiebreak_order", ARRAY(UUID(as_uuid=True)), nullable=False, server_default=text("'{}'")
+    ),
     *_timestamps(),
     schema="app",
 )
@@ -220,6 +225,8 @@ voter_tokens = Table(
     Column("delegate_id", UUID(as_uuid=True), ForeignKey("app.delegates.id"), nullable=False),
     Column("event_id", UUID(as_uuid=True), ForeignKey("app.events.id"), nullable=False),
     Column("token_hash", Text, nullable=False, unique=True),
+    # Código corto de respaldo (2026-11-07); null en los accesos generados antes.
+    Column("code_hash", Text, unique=True),
     Column("expires_at", DateTime(timezone=True), nullable=False),
     Column("revoked_at", DateTime(timezone=True)),
     Column("last_used_at", DateTime(timezone=True)),

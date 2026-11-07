@@ -1,13 +1,16 @@
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Depends, Query, Response
 
 from munych_api.modules.results.api.dependencies import (
     CloseEventDep,
     ComputeRankingDep,
+    ExportEventCsvDep,
     ExportEventDep,
     ManageAwardsDep,
     PublicationDep,
+    SetTiebreakDep,
 )
 from munych_api.modules.results.api.schemas import (
     AwardIn,
@@ -21,11 +24,16 @@ from munych_api.modules.results.api.schemas import (
     RankingDelegateOut,
     RankingEntryOut,
     RankingOut,
+    TiebreakIn,
     UnpublishOut,
 )
+from munych_api.modules.results.application.compute_ranking import CommitteeRanking
+from munych_api.modules.results.application.export_event import ExportFile
+from munych_api.modules.results.application.ports import ExportOptions
 from munych_api.modules.results.application.set_awards import CommitteeAwards
 from munych_api.modules.results.domain.models import Award, PublicationSettings, RankingEntry
 from munych_api.modules.results.domain.snapshot import presented
+from munych_api.modules.results.infrastructure.csv_exporter import CSV_MEDIA_TYPE
 from munych_api.modules.results.infrastructure.excel_exporter import XLSX_MEDIA_TYPE
 from munych_api.shared.auth import AdminUser, OrganizationId
 from munych_api.shared.kernel.catalog import EVENT_TYPES
@@ -53,6 +61,7 @@ def _entry_out(entry: RankingEntry) -> RankingEntryOut:
         score=presented(entry.score),
         criteria_averages={str(k): presented(v) for k, v in entry.criteria_averages.items()},
         role_scores={role: presented(v) for role, v in entry.role_scores.items()},
+        manual_tiebreak=entry.manual_tiebreak,
         incomplete_flags=[
             IncompleteFlagOut(
                 kind=f.kind,
@@ -82,12 +91,7 @@ def _settings_body(settings: PublicationSettings) -> PublicationSettingsBody:
 # ---------------------------------------------------------------- ranking y premios
 
 
-@router.get("/committees/{committee_id}/ranking")
-async def get_committee_ranking(
-    committee_id: UUID, _: AdminUser, organization_id: OrganizationId, use_case: ComputeRankingDep
-) -> RankingOut:
-    """Ranking calculado con el motor puro + avisos de cupos de premios."""
-    ranking = await use_case.execute(organization_id, committee_id)
+def _ranking_out(ranking: CommitteeRanking) -> RankingOut:
     return RankingOut(
         items=[_entry_out(e) for e in ranking.items],
         quota_warnings=ranking.quota_warnings,
@@ -97,6 +101,31 @@ async def get_committee_ranking(
             for role, weight in EVENT_TYPES[ranking.event_type].voter_weights.items()
         },
     )
+
+
+@router.get("/committees/{committee_id}/ranking")
+async def get_committee_ranking(
+    committee_id: UUID, _: AdminUser, organization_id: OrganizationId, use_case: ComputeRankingDep
+) -> RankingOut:
+    """Ranking calculado con el motor puro + avisos de cupos de premios."""
+    return _ranking_out(await use_case.execute(organization_id, committee_id))
+
+
+@router.put("/committees/{committee_id}/tiebreak")
+async def set_committee_tiebreak(
+    committee_id: UUID,
+    body: TiebreakIn,
+    _: AdminUser,
+    organization_id: OrganizationId,
+    use_case: SetTiebreakDep,
+) -> RankingOut:
+    """Desempate manual: el admin ordena las delegaciones que siguen empatadas.
+
+    Tras el desempate automático (criterio de mayor peso), los empates que queden los
+    decide el admin. Se aplica en el ranking, la instantánea, la página pública y los
+    exports. Devuelve el ranking ya recalculado.
+    """
+    return _ranking_out(await use_case.execute(organization_id, committee_id, body.delegation_ids))
 
 
 @router.get("/committees/{committee_id}/awards")
@@ -136,21 +165,78 @@ async def close_event(
     )
 
 
+def export_options(
+    committee_id: Annotated[
+        list[UUID] | None,
+        Query(description="Comités a exportar (repetible). Sin él: todos los del evento"),
+    ] = None,
+    include_scores: Annotated[
+        bool, Query(description="Nota final ponderada (y por rol en CSV)")
+    ] = True,
+    include_details: Annotated[
+        bool, Query(description="Hoja Detalle: cada calificación por sesión, juez y criterio")
+    ] = True,
+    include_comments: Annotated[
+        bool, Query(description="Comentarios de los jueces en el Detalle (privados)")
+    ] = True,
+    include_judge_names: Annotated[
+        bool, Query(description="Nombre del juez en el Detalle; si no, «Juez 1», «Juez 2»…")
+    ] = True,
+) -> ExportOptions:
+    return ExportOptions(
+        committee_ids=frozenset(committee_id) if committee_id else None,
+        include_scores=include_scores,
+        include_details=include_details,
+        include_comments=include_comments,
+        include_judge_names=include_judge_names,
+    )
+
+
+ExportOptionsDep = Annotated[ExportOptions, Depends(export_options)]
+
+
+def _download(export: ExportFile) -> Response:
+    return Response(
+        content=export.content,
+        media_type=export.media_type,
+        headers={"Content-Disposition": f'attachment; filename="{export.filename}"'},
+    )
+
+
 @router.get(
     "/events/{event_id}/export.xlsx",
     response_class=Response,
     responses={200: {"content": {XLSX_MEDIA_TYPE: {}}, "description": "Libro de Excel"}},
 )
 async def export_event_xlsx(
-    event_id: UUID, _: AdminUser, organization_id: OrganizationId, use_case: ExportEventDep
+    event_id: UUID,
+    _: AdminUser,
+    organization_id: OrganizationId,
+    use_case: ExportEventDep,
+    options: ExportOptionsDep,
 ) -> Response:
-    """Hoja Resumen, una hoja de ranking por comité y hoja Detalle por criterio."""
-    export = await use_case.execute(organization_id, event_id)
-    return Response(
-        content=export.content,
-        media_type=export.media_type,
-        headers={"Content-Disposition": f'attachment; filename="{export.filename}"'},
-    )
+    """Hoja Resumen, una hoja de ranking por comité y (opcional) hoja Detalle por criterio."""
+    return _download(await use_case.execute(organization_id, event_id, options))
+
+
+@router.get(
+    "/events/{event_id}/export.csv",
+    response_class=Response,
+    responses={200: {"content": {CSV_MEDIA_TYPE: {}}, "description": "Ranking en CSV"}},
+)
+async def export_event_csv(
+    event_id: UUID,
+    _: AdminUser,
+    organization_id: OrganizationId,
+    use_case: ExportEventCsvDep,
+    options: ExportOptionsDep,
+) -> Response:
+    """Ranking de todos los comités en una tabla plana (UTF-8 con BOM, separado por comas).
+
+    Columnas: comité, siglas, posición, empate, delegación, institución, delegados, nota
+    (y nota por rol si el evento tiene varios), premios y avisos. Sin detalle por juez.
+    """
+    return _download(await use_case.execute(organization_id, event_id, options))
 
 
 # ---------------------------------------------------------------- publicación

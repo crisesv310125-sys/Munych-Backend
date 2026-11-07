@@ -168,6 +168,7 @@ def test_default_document_matches_contract() -> None:
                 "ranking": None,
             }
         ],
+        "general_ranking": None,
         "published_at": "2026-10-11T23:00:00Z",
         "version": 3,
     }
@@ -178,6 +179,37 @@ def test_ranking_with_scores_is_rounded() -> None:
     assert [(r["position"], r["score"]) for r in ranking] == [(1, 87.46), (2, 80.0), (3, 10.0)]
     assert ranking[2]["delegation"]["character_name"] == "Ministro de Defensa"
     assert ranking[2]["delegates"] == []
+
+
+def test_general_ranking_mixes_committees_by_score() -> None:
+    snapshot = _snapshot()
+    second = dict(snapshot["committees"][0], slug="cs", name="Consejo de Seguridad", acronym="CS")
+    second["ranking"] = [
+        dict(snapshot["committees"][0]["ranking"][1], score=87.46),  # empata con MX
+        dict(snapshot["committees"][0]["ranking"][2], score=None),  # sin nota: no aparece
+    ]
+    snapshot["committees"].append(second)
+    view = build_public_view(
+        snapshot,
+        PublicationSettings(show_ranking=True, show_scores=True),
+        version=1,
+        published_at=PUBLISHED_AT,
+    )
+    rows = [
+        (
+            r["position"],
+            r["committee"]["acronym"],
+            r["delegation"]["country_code"] or "-",
+            r["score"],
+        )
+        for r in view["general_ranking"]
+    ]
+    assert rows == [
+        (1, "CS", "US", 87.46),
+        (1, "DISEC", "MX", 87.46),
+        (3, "DISEC", "US", 80.0),
+        (4, "DISEC", "-", 10.0),
+    ]
 
 
 # ---------------------------------------------------------------- privacidad (combinaciones)
@@ -245,6 +277,21 @@ def test_privacy_for_every_combination(settings: dict[str, Any]) -> None:
         assert "87.46" not in text
 
     assert view["settings"]["indexable"] is settings["indexable"]
+
+
+@pytest.mark.parametrize("settings", COMBINATIONS, ids=[_ids(s) for s in COMBINATIONS])
+def test_general_ranking_follows_the_same_privacy(settings: dict[str, Any]) -> None:
+    view = _view(**settings)
+    general = view["general_ranking"]
+    if not settings["show_ranking"]:
+        assert general is None
+        return
+    assert {r["score"] is None for r in general} == {not settings["show_scores"]}
+    names = [n for r in general for n in r["delegates"]]
+    if settings["name_format"] == "hidden":
+        assert names == []
+    if not settings["show_institution"]:
+        assert {r["delegation"]["institution"] for r in general} == {None}
 
 
 def test_settings_from_stored_json_uses_safe_defaults() -> None:

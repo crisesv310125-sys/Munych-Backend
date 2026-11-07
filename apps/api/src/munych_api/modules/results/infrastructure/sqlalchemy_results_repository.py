@@ -175,6 +175,14 @@ class SqlAlchemyResultsRepository:
             peer_votes=tuple(
                 PeerVoteValue(v.voter_delegate_id, v.delegation_id, v.award_type) for v in vote_rows
             ),
+            tiebreak_order=tuple(row.tiebreak_order or ()),
+        )
+
+    async def set_tiebreak_order(self, committee_id: UUID, order: list[UUID]) -> None:
+        await self._session.execute(
+            update(committees)
+            .where(committees.c.id == committee_id)
+            .values(tiebreak_order=order, updated_at=func.now())
         )
 
     async def get_awards(self, committee_id: UUID) -> list[Award]:
@@ -277,6 +285,7 @@ class SqlAlchemyResultsRepository:
     async def score_details(self, event_id: UUID) -> list[ScoreDetail]:
         rows = await self._session.execute(
             select(
+                committees.c.id.label("committee_id"),
                 committees.c.name.label("committee"),
                 func.coalesce(delegations.c.country_code, delegations.c.character_name).label(
                     "delegation"
@@ -313,6 +322,7 @@ class SqlAlchemyResultsRepository:
         )
         return [
             ScoreDetail(
+                committee_id=r.committee_id,
                 committee=r.committee,
                 delegation=r.delegation or "",
                 delegate=r.delegate,

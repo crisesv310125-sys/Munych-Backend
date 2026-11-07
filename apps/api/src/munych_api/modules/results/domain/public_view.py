@@ -77,6 +77,43 @@ def _committee(committee: dict[str, Any], settings: PublicationSettings) -> dict
     }
 
 
+def _general_ranking(
+    committees: list[dict[str, Any]], settings: PublicationSettings
+) -> list[dict[str, Any]] | None:
+    """Ranking general del evento: todas las delegaciones con nota, de mayor a menor.
+
+    Pedido en la reunión del 2026-10-28 (ganadores, ranking por comité y ranking general).
+    La nota de cada comité ya está en 0-100, así que se comparan directamente. Las notas
+    iguales comparten lugar; las delegaciones sin nota no aparecen. Solo con `show_ranking`.
+    """
+    if not settings.show_ranking:
+        return None
+    rows = [
+        (committee, entry)
+        for committee in committees
+        for entry in committee["ranking"]
+        if entry["score"] is not None
+    ]
+    rows.sort(key=lambda row: (-row[1]["score"], row[0]["name"], row[1]["position"]))
+    result: list[dict[str, Any]] = []
+    for i, (committee, entry) in enumerate(rows):
+        tied = i > 0 and rows[i - 1][1]["score"] == entry["score"]
+        result.append(
+            {
+                "position": result[-1]["position"] if tied else i + 1,
+                "committee": {
+                    "slug": committee["slug"],
+                    "name": committee["name"],
+                    "acronym": committee["acronym"],
+                },
+                "delegation": _delegation(entry["delegation"], settings),
+                "delegates": _delegates(entry, settings),
+                "score": entry["score"] if settings.show_scores else None,
+            }
+        )
+    return result
+
+
 def build_public_view(
     snapshot: dict[str, Any],
     settings: PublicationSettings,
@@ -98,6 +135,7 @@ def build_public_view(
         },
         "settings": settings.to_dict(),
         "committees": [_committee(c, settings) for c in snapshot["committees"]],
+        "general_ranking": _general_ranking(snapshot["committees"], settings),
         "published_at": published_at.isoformat().replace("+00:00", "Z"),
         "version": version,
     }

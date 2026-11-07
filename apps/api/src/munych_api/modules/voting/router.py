@@ -111,7 +111,7 @@ async def get_ballot(request: Request, voter: CurrentVoter, service: VotingServi
 async def submit_peer_vote(
     request: Request, body: PeerVotesIn, voter: CurrentVoter, service: VotingServiceDep
 ) -> BallotOut:
-    """Envía el voto entre pares (Mejor delegado, Delegado distinguido, Mención de honor).
+    """Envía el voto entre pares (Mejor delegado, Delegado distinguido, Mención honorífica).
 
     Una sola vez y sin cambios: un segundo envío responde 409 CONFLICT.
     """

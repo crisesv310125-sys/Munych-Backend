@@ -104,8 +104,9 @@ class ExcelExporter:
         self._summary(summary, data)
         for committee in data.committees:
             sheet = workbook.create_sheet(_sheet_title(committee.committee.acronym, used))
-            self._ranking(sheet, committee)
-        self._details(workbook.create_sheet("Detalle"), data)
+            self._ranking(sheet, committee, include_scores=data.options.include_scores)
+        if data.options.include_details:
+            self._details(workbook.create_sheet("Detalle"), data)
 
         buffer = io.BytesIO()
         workbook.save(buffer)
@@ -125,6 +126,7 @@ class ExcelExporter:
         sheet["B5"] = _local(data.generated_at, data.timezone)
         sheet["B5"].number_format = "yyyy-mm-dd hh:mm"
 
+        include_scores = data.options.include_scores
         rows: list[list[Cell]] = []
         for committee in data.committees:
             entries = {e.delegation.id: e for e in committee.ranking}
@@ -132,27 +134,23 @@ class ExcelExporter:
                 entry = entries.get(award.delegation_id)
                 if entry is None:
                     continue
-                rows.append(
-                    [
-                        committee.committee.name,
-                        AWARD_LABELS[award.award_type],
-                        award.position,
-                        _delegation_label(entry),
-                        _delegates(entry),
-                        entry.delegation.institution,
-                        _score(entry.score),
-                    ]
-                )
-        _write_table(
-            sheet,
-            7,
-            ["Comité", "Premio", "Posición", "Delegación", "Delegados", "Institución", "Nota"],
-            rows,
-        )
+                row: list[Cell] = [
+                    committee.committee.name,
+                    AWARD_LABELS[award.award_type],
+                    award.position,
+                    _delegation_label(entry),
+                    _delegates(entry),
+                    entry.delegation.institution,
+                ]
+                if include_scores:
+                    row.append(_score(entry.score))
+                rows.append(row)
+        headers = ["Comité", "Premio", "Posición", "Delegación", "Delegados", "Institución"]
+        _write_table(sheet, 7, headers + (["Nota"] if include_scores else []), rows)
         _autosize(sheet)
 
     @staticmethod
-    def _ranking(sheet: Worksheet, committee: CommitteeResults) -> None:
+    def _ranking(sheet: Worksheet, committee: CommitteeResults, *, include_scores: bool) -> None:
         info = committee.committee
         sheet["A1"] = _safe(f"{info.name} ({info.acronym})")
         sheet["A1"].font = Font(bold=True, size=13)
@@ -161,42 +159,35 @@ class ExcelExporter:
             awards_by_delegation.setdefault(award.delegation_id, []).append(
                 AWARD_LABELS[award.award_type]
             )
-        rows: list[list[Cell]] = [
-            [
+        rows: list[list[Cell]] = []
+        for entry in committee.ranking:
+            row: list[Cell] = [
                 entry.position,
                 "Sí" if entry.tied else "",
                 _delegation_label(entry),
                 entry.delegation.institution,
                 _delegates(entry),
-                _score(entry.score),
+            ]
+            if include_scores:
+                row.append(_score(entry.score))
+            row += [
                 ", ".join(awards_by_delegation.get(entry.delegation.id, [])),
                 ", ".join(
                     sorted({_FLAG_LABELS.get(f.kind, f.kind) for f in entry.incomplete_flags})
                 ),
             ]
-            for entry in committee.ranking
-        ]
-        _write_table(
-            sheet,
-            3,
-            [
-                "Posición",
-                "Empate",
-                "Delegación",
-                "Institución",
-                "Delegados",
-                "Nota",
-                "Premios",
-                "Avisos",
-            ],
-            rows,
-        )
+            rows.append(row)
+        headers = ["Posición", "Empate", "Delegación", "Institución", "Delegados"]
+        headers += (["Nota"] if include_scores else []) + ["Premios", "Avisos"]
+        _write_table(sheet, 3, headers, rows)
         _autosize(sheet)
 
     @staticmethod
     def _details(sheet: Worksheet, data: ExportData) -> None:
-        rows: list[list[Cell]] = [
-            [
+        comments = data.options.include_comments
+        rows: list[list[Cell]] = []
+        for d in data.details:
+            row: list[Cell] = [
                 d.committee,
                 d.delegation,
                 d.delegate,
@@ -205,29 +196,17 @@ class ExcelExporter:
                 d.judge,
                 d.criterion,
                 d.value,
-                d.comment,
-                _local(d.updated_at, data.timezone),
             ]
-            for d in data.details
-        ]
-        _write_table(
-            sheet,
-            1,
-            [
-                "Comité",
-                "Delegación",
-                "Delegado",
-                "Institución",
-                "Sesión",
-                "Juez",
-                "Criterio",
-                "Valor",
-                "Comentario",
-                f"Actualizado ({data.timezone})",
-            ],
-            rows,
-        )
-        for (cell,) in sheet.iter_rows(min_row=2, min_col=10, max_col=10):
+            if comments:
+                row.append(d.comment)
+            row.append(_local(d.updated_at, data.timezone))
+            rows.append(row)
+        headers = ["Comité", "Delegación", "Delegado", "Institución", "Sesión", "Juez"]
+        headers += ["Criterio", "Valor"] + (["Comentario"] if comments else [])
+        headers.append(f"Actualizado ({data.timezone})")
+        _write_table(sheet, 1, headers, rows)
+        date_column = len(headers)
+        for (cell,) in sheet.iter_rows(min_row=2, min_col=date_column, max_col=date_column):
             cell.number_format = "yyyy-mm-dd hh:mm"
         sheet.freeze_panes = "A2"
         _autosize(sheet)

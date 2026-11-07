@@ -1,7 +1,7 @@
 """Votación de delegados: accesos y ventana (admin) y boleta entre pares (delegado).
 
 Ver ADR-005. Desde el 2026-11-06 los delegados no usan la rúbrica: votan una sola
-vez por comité Mejor delegado, Delegado distinguido y Mención de honor.
+vez por comité Mejor delegado, Delegado distinguido y Mención honorífica.
 """
 
 from dataclasses import dataclass
@@ -27,9 +27,12 @@ from munych_api.modules.voting.schemas import (
 )
 from munych_api.modules.voting.tokens import (
     expires_at,
+    hash_code,
     hash_token,
     looks_like_token,
+    new_code,
     new_token,
+    normalize_code,
     qr_svg,
 )
 from munych_api.scoring_engine import AWARD_POINTS
@@ -63,6 +66,7 @@ class Voter:
     event_name: str
     event_status: str
     event_type: EventType
+    event_slug: str = ""
 
 
 def window_status(
@@ -169,12 +173,14 @@ class VotingService:
         rows: list[dict[str, Any]] = []
         for r in targets:
             token = new_token()
+            code = new_code()
             url = f"{body.link_base}{token}"
             rows.append(
                 {
                     "delegate_id": r["delegate_id"],
                     "event_id": event_id,
                     "token_hash": hash_token(token),
+                    "code_hash": hash_code(normalize_code(code) or code),
                     "expires_at": expiry,
                     "created_by": admin_id,
                 }
@@ -188,6 +194,7 @@ class VotingService:
                     committee_name=r["committee_name"],
                     committee_acronym=r["committee_acronym"],
                     token=token,
+                    code=code,
                     url=url,
                     qr_svg=qr_svg(url),
                     expires_at=expiry,
@@ -203,10 +210,17 @@ class VotingService:
     # ------------------------------------------------------------ boleta (delegado)
 
     async def authenticate(self, token: str) -> Voter:
-        """Valida el token: existe, no está revocado ni vencido y su evento admite delegados."""
-        if not looks_like_token(token):
+        """Valida el token (o el código corto de respaldo, que sirve igual).
+
+        Debe existir, no estar revocado ni vencido y su evento debe admitir delegados.
+        """
+        code = normalize_code(token)
+        if code is not None:
+            row = await self._repo.voter_by_token_hash(hash_code(code), by_code=True)
+        elif looks_like_token(token):
+            row = await self._repo.voter_by_token_hash(hash_token(token))
+        else:
             raise DomainError(ErrorCode.UNAUTHORIZED, INVALID_ACCESS)
-        row = await self._repo.voter_by_token_hash(hash_token(token))
         now = self._clock.now()
         if (
             row is None
@@ -231,6 +245,7 @@ class VotingService:
             event_name=row["event_name"],
             event_status=row["event_status"],
             event_type=row["event_type"],
+            event_slug=row["event_slug"],
         )
 
     async def ballot(self, voter: Voter) -> BallotOut:
@@ -252,6 +267,7 @@ class VotingService:
                 character_name=voter.character_name,
             ),
             event_name=voter.event_name,
+            event_slug=voter.event_slug,
             event_status=voter.event_status,  # type: ignore[arg-type]
             committee_name=voter.committee_name,
             committee_acronym=voter.committee_acronym,

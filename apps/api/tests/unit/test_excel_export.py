@@ -10,6 +10,7 @@ from openpyxl import load_workbook
 from munych_api.modules.results.application.ports import (
     CommitteeResults,
     ExportData,
+    ExportOptions,
     ScoreDetail,
 )
 from munych_api.modules.results.domain.models import (
@@ -20,6 +21,69 @@ from munych_api.modules.results.domain.models import (
     RankingEntry,
 )
 from munych_api.modules.results.infrastructure.excel_exporter import ExcelExporter
+
+
+def export_data(options: ExportOptions | None = None) -> ExportData:
+    mx = DelegationInfo(uuid.uuid4(), "MX", None, "Colegio", ())
+    entry = RankingEntry(
+        position=1,
+        tied=False,
+        delegation=mx,
+        delegates=(DelegateScore(uuid.uuid4(), "Ana Pérez", Decimal("87.456")),),
+        score=Decimal("87.456"),
+        criteria_averages={},
+    )
+    committee = CommitteeInfo(
+        uuid.uuid4(), uuid.uuid4(), "ag", "Asamblea", "AG", "general_assembly", {}, True
+    )
+    detail = ScoreDetail(
+        committee="Asamblea",
+        delegation="MX",
+        delegate="Ana Pérez",
+        institution="Colegio",
+        session_number=1,
+        judge="Juez 1",
+        criterion="Oratoria",
+        value=4,
+        comment=None,
+        updated_at=datetime(2026, 10, 10, 15, 0, tzinfo=UTC),
+    )
+    return ExportData(
+        event_name="SD-MUN 2026",
+        venue=None,
+        starts_on=date(2026, 10, 9),
+        ends_on=date(2026, 10, 11),
+        timezone="America/Santo_Domingo",
+        generated_at=datetime(2026, 10, 11, 23, 0, tzinfo=UTC),
+        committees=[CommitteeResults(committee, [entry], [Award("best_delegate", mx.id)])],
+        details=[detail],
+        options=options or ExportOptions(),
+    )
+
+
+def test_excel_respects_the_export_options() -> None:
+    options = ExportOptions(include_scores=False, include_details=False)
+    workbook = load_workbook(io.BytesIO(ExcelExporter().export(export_data(options))))
+    assert workbook.sheetnames == ["Resumen", "AG"]
+    assert "Nota" not in [c.value for c in workbook["Resumen"][7]]
+    assert [c.value for c in workbook["AG"][3]] == [
+        "Posición",
+        "Empate",
+        "Delegación",
+        "Institución",
+        "Delegados",
+        "Premios",
+        "Avisos",
+    ]
+
+
+def test_excel_detail_without_comments_drops_the_column() -> None:
+    options = ExportOptions(include_comments=False)
+    workbook = load_workbook(io.BytesIO(ExcelExporter().export(export_data(options))))
+    headers = [c.value for c in workbook["Detalle"][1]]
+    assert "Comentario" not in headers
+    assert headers[-1] == "Actualizado (America/Santo_Domingo)"
+    assert workbook["Detalle"]["I2"].value == datetime(2026, 10, 10, 11, 0)  # noqa: DTZ001
 
 
 def test_excel_has_summary_committee_and_detail_sheets() -> None:

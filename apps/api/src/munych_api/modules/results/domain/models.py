@@ -104,6 +104,8 @@ class CommitteeData:
     scores: tuple[ScoreValue, ...]
     event_type: EventType = DEFAULT_EVENT_TYPE
     peer_votes: tuple[PeerVoteValue, ...] = ()
+    tiebreak_order: tuple[UUID, ...] = ()
+    """Desempate manual del admin: orden de las delegaciones que siguen empatadas."""
 
 
 # ---------------------------------------------------------------- ranking
@@ -135,6 +137,8 @@ class RankingEntry:
     incomplete_flags: tuple[IncompleteFlag, ...] = ()
     role_scores: dict[VoterRole, Decimal | None] = field(default_factory=dict)
     """Nota por rol que vota; `None` si nadie de ese rol calificó (su peso se reparte)."""
+    manual_tiebreak: bool = False
+    """Su posición la decidió el admin al resolver un empate."""
 
 
 # ---------------------------------------------------------------- premios

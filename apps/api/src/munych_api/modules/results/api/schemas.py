@@ -37,6 +37,19 @@ class RankingEntryOut(BaseModel):
         description="Nota (0-100) de la delegación por rol que vota. null: nadie de ese rol "
         "calificó y su peso se reparte entre los demás roles"
     )
+    manual_tiebreak: bool = Field(
+        default=False, description="Su posición la decidió el admin al resolver un empate"
+    )
+
+
+class TiebreakIn(BaseModel):
+    """Desempate manual: delegaciones del comité en el orden que decide el admin."""
+
+    delegation_ids: list[UUID] = Field(
+        max_length=500,
+        description="Orden de las delegaciones empatadas. Un empate se resuelve solo si "
+        "están todas sus delegaciones. Lista vacía = quitar los desempates manuales",
+    )
 
 
 class RankingOut(BaseModel):
@@ -118,6 +131,18 @@ class PublicCommitteeOut(BaseModel):
     ranking: list[PublicRankingEntryOut] | None
 
 
+class PublicCommitteeRefOut(BaseModel):
+    slug: str
+    name: str
+    acronym: str
+
+
+class PublicGeneralRankingEntryOut(PublicRankingEntryOut):
+    """Una delegación en el ranking general del evento (todas las de todos los comités)."""
+
+    committee: PublicCommitteeRefOut
+
+
 class PublicEventOut(BaseModel):
     slug: str
     name: str
@@ -135,6 +160,11 @@ class PublicDocumentOut(BaseModel):
     event: PublicEventOut
     settings: PublicationSettingsBody
     committees: list[PublicCommitteeOut]
+    general_ranking: list[PublicGeneralRankingEntryOut] | None = Field(
+        default=None,
+        description="Ranking general del evento (todas las delegaciones con nota). "
+        "null si show_ranking = false",
+    )
     published_at: datetime
     version: int
 

@@ -66,6 +66,9 @@ EXPECTED_OPERATIONS = {
     ("GET", "/api/v1/events/{event_id}/peer-vote"): "list_peer_vote_windows",
     ("PUT", "/api/v1/committees/{committee_id}/peer-vote"): "open_peer_vote",
     ("POST", "/api/v1/committees/{committee_id}/peer-vote/close"): "close_peer_vote",
+    # Exportación en CSV y desempate manual (2026-11-07).
+    ("GET", "/api/v1/events/{event_id}/export.csv"): "export_event_csv",
+    ("PUT", "/api/v1/committees/{committee_id}/tiebreak"): "set_committee_tiebreak",
 }
 
 

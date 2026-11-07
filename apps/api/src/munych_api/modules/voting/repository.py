@@ -118,7 +118,11 @@ class VotingRepository:
 
     # ------------------------------------------------------------ boleta (delegado)
 
-    async def voter_by_token_hash(self, token_hash: str) -> dict[str, Any] | None:
+    async def voter_by_token_hash(
+        self, token_hash: str, *, by_code: bool = False
+    ) -> dict[str, Any] | None:
+        """Acceso por el hash del token o, con `by_code`, por el del código de respaldo."""
+        column = voter_tokens.c.code_hash if by_code else voter_tokens.c.token_hash
         row = (
             (
                 await self._session.execute(
@@ -138,6 +142,7 @@ class VotingRepository:
                         committees.c.acronym.label("committee_acronym"),
                         events.c.id.label("event_id"),
                         events.c.name.label("event_name"),
+                        events.c.slug.label("event_slug"),
                         events.c.status.label("event_status"),
                         events.c.event_type,
                     )
@@ -145,7 +150,7 @@ class VotingRepository:
                     .join(delegations, delegations.c.id == delegates.c.delegation_id)
                     .join(committees, committees.c.id == delegations.c.committee_id)
                     .join(events, events.c.id == committees.c.event_id)
-                    .where(voter_tokens.c.token_hash == token_hash)
+                    .where(column == token_hash)
                 )
             )
             .mappings()

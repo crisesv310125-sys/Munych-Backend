@@ -6,7 +6,7 @@ from fastapi import Depends, Request
 
 from munych_api.modules.audit.dependencies import AuditServiceDep
 from munych_api.modules.results.application.close_event import CloseEvent
-from munych_api.modules.results.application.compute_ranking import ComputeRanking
+from munych_api.modules.results.application.compute_ranking import ComputeRanking, SetTiebreak
 from munych_api.modules.results.application.export_event import ExportEvent
 from munych_api.modules.results.application.ports import Clock, Revalidator
 from munych_api.modules.results.application.publication import Publication
@@ -15,6 +15,7 @@ from munych_api.modules.results.infrastructure.adapters import (
     AwardsAuditAdapter,
     StoragePublicUrls,
 )
+from munych_api.modules.results.infrastructure.csv_exporter import CsvExporter
 from munych_api.modules.results.infrastructure.excel_exporter import ExcelExporter
 from munych_api.modules.results.infrastructure.pages_rebuild import PagesRebuildScheduler
 from munych_api.modules.results.infrastructure.sqlalchemy_results_repository import (
@@ -52,6 +53,10 @@ def get_compute_ranking(repository: RepositoryDep) -> ComputeRanking:
     return ComputeRanking(repository)
 
 
+def get_set_tiebreak(repository: RepositoryDep) -> SetTiebreak:
+    return SetTiebreak(repository)
+
+
 def get_manage_awards(
     repository: RepositoryDep, audit: AuditServiceDep, clock: ClockDep
 ) -> ManageAwards:
@@ -70,6 +75,10 @@ def get_export_event(repository: RepositoryDep, clock: ClockDep) -> ExportEvent:
     return ExportEvent(repository, ExcelExporter(), clock)
 
 
+def get_export_event_csv(repository: RepositoryDep, clock: ClockDep) -> ExportEvent:
+    return ExportEvent(repository, CsvExporter(), clock)
+
+
 def get_publication(
     repository: RepositoryDep,
     revalidator: Annotated[Revalidator, Depends(get_revalidator)],
@@ -79,7 +88,9 @@ def get_publication(
 
 
 ComputeRankingDep = Annotated[ComputeRanking, Depends(get_compute_ranking)]
+SetTiebreakDep = Annotated[SetTiebreak, Depends(get_set_tiebreak)]
 ManageAwardsDep = Annotated[ManageAwards, Depends(get_manage_awards)]
 CloseEventDep = Annotated[CloseEvent, Depends(get_close_event)]
 ExportEventDep = Annotated[ExportEvent, Depends(get_export_event)]
+ExportEventCsvDep = Annotated[ExportEvent, Depends(get_export_event_csv)]
 PublicationDep = Annotated[Publication, Depends(get_publication)]

@@ -123,10 +123,24 @@ Handoff «Votación de delegados» del cliente. Sustituye la boleta por rúbrica
 
 | Tema | Decisión |
 |---|---|
-| Qué votan | Ya no usan la rúbrica ni votan por sesión. **Una sola boleta por comité, al final**: Mejor delegado, Delegado distinguido y Mención de honor (`PeerAwardType`, `PEER_AWARD_TYPES` en `catalog.py`). Tres delegaciones distintas y ninguna la propia; con menos de 3 candidatas, solo los primeros N premios (`required_awards`). |
+| Qué votan | Ya no usan la rúbrica ni votan por sesión. **Una sola boleta por comité, al final**: Mejor delegado, Delegado distinguido y Mención honorífica (`PeerAwardType`, `PEER_AWARD_TYPES` en `catalog.py`). Tres delegaciones distintas y ninguna la propia; con menos de 3 candidatas, solo los primeros N premios (`required_awards`). |
 | Cálculo | `scoring_engine/peer_awards.py`: 3 / 2 / 1 puntos; nota del rol delegados = puntos recibidos ÷ (3 × votantes que enviaron boleta) × 100. Sin votantes en el comité → `None` (su peso se reparte, como cualquier rol sin votos). La nota llega ya calculada a `roles.py` (`RoleScores.delegation_scores`) y no aporta a las medias por criterio. El peso del rol no cambia (50 % MUN regular, 25 % Campeonato). |
 | Ventana | `app.committees.peer_vote_opens_at` / `peer_vote_closes_at`. Estado derivado (`window_status`): `not_scheduled`, `scheduled` (antes de `opens_at` o con el evento fuera de `active`), `open`, `closed` (pasado `closes_at`, o evento cerrado). Admin: `GET /events/{id}/peer-vote`, `PUT /committees/{id}/peer-vote` (`opens_at` null = ahora; reabrir quita el cierre y conserva los votos) y `POST /committees/{id}/peer-vote/close`. |
 | Boleta | `GET /vote/ballot` devuelve ventana, peso del rol, premios, candidatas y, si ya votó, `picks`, `submitted_at` y `receipt` (`SIGLAS-XXXX-XX`). `POST /vote/ballot` `{ picks }` (antes `PUT` con rúbrica). Un segundo envío → `409 CONFLICT`: **el voto no se cambia** (trigger `prevent_mutation` en `UPDATE`). Fuera de la ventana → `409 SESSION_CLOSED`. Límites: 20 GET/min y 30 POST/min por token. |
 | Datos | `app.peer_votes` (`unique(voter, award_type)` y `unique(voter, delegation_id)`, trigger `check_peer_vote`, RLS sin acceso para `anon`/`authenticated`). Se **eliminan** `app.delegate_votes` y `app.check_delegate_vote()`: los votos por rúbrica anteriores se pierden. |
 | Apertura con la sesión | Abrir una sesión (`ManageSessions.open`) abre también el voto entre pares del comité mediante el puerto `PeerVote` (`scoring/infrastructure/peer_vote_adapter.py` → `VotingService.open_with_session`), en la misma transacción. No hace nada si ya está abierto, si el evento está cerrado o si no votan delegados; si estaba programado o cerrado, se abre ahora sin cierre. |
 | Fuera de alcance | El voto de resoluciones en sesión del handoff (pantallas 3b y 3h) no aplica. |
+
+### Pendientes de la bóveda (2026-11-07)
+
+Migraciones `20261107000100_voter_short_codes` y `20261107000200_manual_tiebreak`.
+
+| Tema | Decisión |
+|---|---|
+| Nombres de premios | Un solo catálogo (`AWARD_LABELS`): Mejor delegado, Delegado distinguido, Mención honorífica, Mención verbal. `PEER_AWARD_LABELS` se deriva de él. |
+| Código corto de respaldo | `voter_tokens.code_hash` (único, null en accesos anteriores). 10 caracteres de un alfabeto sin 0/O/1/I/L (~50 bits), hash SHA-256 con prefijo `code:`. Es una credencial alternativa al token en `Authorization: Bearer`; `normalize_code` acepta minúsculas, espacios y guiones. Solo se devuelve al generar (`GeneratedTokenOut.code`). |
+| Boleta | `BallotOut.event_slug` para enlazar a los resultados públicos. |
+| Opciones de exportación | `ExportOptions` (query): comités, nota, hoja Detalle, comentarios y nombres de jueces («Juez N» por comité si se ocultan). Por defecto, todo, como antes. |
+| CSV | `GET /events/{id}/export.csv` (`CsvExporter`): ranking plano con nota por rol si hay varios roles; UTF-8 con BOM y protección contra fórmulas. |
+| Desempate manual | `committees.tiebreak_order uuid[]` y `PUT /committees/{id}/tiebreak`. `apply_manual_tiebreak` reordena un grupo empatado solo si el orden incluye a todas sus delegaciones (`tied=false`, `manual_tiebreak=true`). Va en `rank_committee`, así que lo ven el ranking, la instantánea, el público y los exports. `EVENT_CLOSED` con el evento cerrado. |
+| Ranking general | `general_ranking` en el documento público (`public_view._general_ranking`): todas las delegaciones con nota, de mayor a menor, notas iguales comparten lugar; misma lista blanca de privacidad; `null` sin `show_ranking`. |

@@ -2,7 +2,7 @@
 
 Cada delegado vota una vez por comité y elige tres delegaciones distintas:
 
-    Mejor delegado 3 puntos · Delegado distinguido 2 · Mención de honor 1
+    Mejor delegado 3 puntos · Delegado distinguido 2 · Mención honorífica 1
 
 Nota de una delegación (0-100) = puntos recibidos / (3 × votantes) × 100, donde
 «votantes» son los delegados del comité que enviaron su boleta. Así la nota no

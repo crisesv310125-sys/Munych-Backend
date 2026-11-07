@@ -7,7 +7,7 @@ from munych_api.modules.results.application.ports import ResultsRepository
 from munych_api.modules.results.domain.awards import quota_warnings
 from munych_api.modules.results.domain.models import CommitteeData, RankingEntry
 from munych_api.modules.results.domain.ranking import rank_committee
-from munych_api.shared.kernel import NotFoundError
+from munych_api.shared.kernel import DomainError, ErrorCode, NotFoundError
 from munych_api.shared.kernel.catalog import DEFAULT_EVENT_TYPE, EventType
 
 
@@ -39,3 +39,24 @@ class ComputeRanking:
             quota_warnings=quota_warnings(awards, data.committee.award_quotas),
             event_type=data.event_type,
         )
+
+
+class SetTiebreak:
+    """Desempate manual: el admin ordena las delegaciones que siguen empatadas."""
+
+    def __init__(self, repository: ResultsRepository) -> None:
+        self._repo = repository
+
+    async def execute(
+        self, organization_id: UUID, committee_id: UUID, order: list[UUID]
+    ) -> CommitteeRanking:
+        """Reemplaza el orden del comité (lista vacía = quitar los desempates manuales)."""
+        data = await require_committee_data(self._repo, organization_id, committee_id)
+        if data.committee.event_closed:
+            raise DomainError(ErrorCode.EVENT_CLOSED, "El evento está cerrado")
+        unique = list(dict.fromkeys(order))
+        known = {d.id for d in data.delegations}
+        if any(delegation_id not in known for delegation_id in unique):
+            raise NotFoundError("Alguna delegación no pertenece a este comité")
+        await self._repo.set_tiebreak_order(committee_id, unique)
+        return await ComputeRanking(self._repo).execute(organization_id, committee_id)
