@@ -23,9 +23,14 @@ def _migrations_sql() -> str:
     return "\n".join(p.read_text(encoding="utf-8") for p in sorted(MIGRATIONS.glob("*.sql")))
 
 
-def _last_check(column: str) -> set[str]:
-    """Valores del último CHECK `<column> in (...)` de las migraciones."""
-    matches = re.findall(rf"{column} in \(([^)]*)\)", _migrations_sql())
+def _last_check(column: str, constraint: str = "") -> set[str]:
+    """Valores del último CHECK `<column> in (...)` de las migraciones.
+
+    Con `constraint`, solo el CHECK con ese nombre (p. ej. `role` también existe en
+    `staff_members`, con otros valores).
+    """
+    prefix = rf"{constraint}\s+check \(" if constraint else ""
+    matches = re.findall(rf"{prefix}{column} in \(([^)]*)\)", _migrations_sql())
     assert matches, f"falta el CHECK de {column}"
     return set(re.findall(r"'([a-z_]+)'", matches[-1]))
 
@@ -85,4 +90,4 @@ def test_voter_roles_and_weights_are_valid() -> None:
 
 def test_sql_checks_match_catalog() -> None:
     assert _last_check("event_type") == set(EVENT_TYPES)
-    assert _last_check("role") == set(get_args(JudgeRole))
+    assert _last_check("role", "committee_judges_role_check") == set(get_args(JudgeRole))

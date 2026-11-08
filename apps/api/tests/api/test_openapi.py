@@ -71,6 +71,25 @@ EXPECTED_OPERATIONS = {
     ("PUT", "/api/v1/committees/{committee_id}/tiebreak"): "set_committee_tiebreak",
     ("GET", "/api/v1/events/{event_id}/export.pdf"): "export_event_pdf",
     ("POST", "/api/v1/events/{event_id}/voter-tokens/sheet.pdf"): "voter_access_sheet",
+    # Gestión de staff (2026-11-08): de la organización; el evento va como ?event_id=.
+    ("GET", "/api/v1/staff"): "staff_overview",
+    ("POST", "/api/v1/staff-types"): "create_staff_type",
+    ("GET", "/api/v1/staff-types/{type_id}"): "get_staff_type",
+    ("PATCH", "/api/v1/staff-types/{type_id}"): "update_staff_type",
+    ("PUT", "/api/v1/staff-types/{type_id}/rubric"): "put_staff_rubric",
+    ("GET", "/api/v1/staff-people"): "list_staff_people",
+    ("POST", "/api/v1/staff-types/{type_id}/members"): "add_staff_member",
+    ("PATCH", "/api/v1/staff-members/{member_id}"): "update_staff_member",
+    ("POST", "/api/v1/staff-members/{member_id}/remove"): "remove_staff_member",
+    ("PATCH", "/api/v1/staff-people/{person_id}"): "update_staff_person",
+    ("POST", "/api/v1/staff-people/{person_id}/link"): "issue_staff_link",
+    ("GET", "/api/v1/staff-types/{type_id}/ranking"): "staff_ranking",
+    ("POST", "/api/v1/staff-types/{type_id}/awards"): "add_staff_award",
+    ("PATCH", "/api/v1/staff-awards/{award_id}"): "update_staff_award",
+    ("PUT", "/api/v1/staff-awards/{award_id}/assignment"): "assign_staff_award",
+    ("POST", "/api/v1/staff-types/{type_id}/awards/confirm"): "confirm_staff_awards",
+    ("GET", "/api/v1/staff/me"): "staff_me",
+    ("PUT", "/api/v1/staff/evaluations"): "save_staff_evaluation",
 }
 
 

@@ -45,7 +45,15 @@ def role_inputs(data: CommitteeData) -> dict[str, RoleScores]:
             )
     roles: dict[str, RoleScores] = {}
     for role, entries in by_role.items():
-        if role == "delegate":
+        staff_scores = data.staff_role_scores.get(role)
+        if staff_scores is not None and role != "delegate":
+            # Tipos de staff que cuentan para este peso (staff o mesa), promediados.
+            roles[role] = RoleScores(
+                weight=config.voter_weights[role],
+                scores=(),
+                delegation_scores={str(d.id): staff_scores.get(d.id) for d in data.delegations},
+            )
+        elif role == "delegate":
             # Los delegados votan por premios (3/2/1 puntos), no con la rúbrica.
             roles[role] = RoleScores(
                 weight=config.voter_weights[role],

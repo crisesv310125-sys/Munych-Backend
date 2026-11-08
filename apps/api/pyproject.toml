@@ -195,6 +195,13 @@ forbidden_modules = ["munych_api.modules.voting.repository"]
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
+name = "Repositorios privados: staff"
+type = "forbidden"
+source_modules = ["munych_api.modules.identity", "munych_api.modules.events", "munych_api.modules.judging", "munych_api.modules.rubrics", "munych_api.modules.audit", "munych_api.modules.scoring", "munych_api.modules.results", "munych_api.modules.voting"]
+forbidden_modules = ["munych_api.modules.staff.repository"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
 name = "Infraestructura privada: scoring y results"
 type = "independence"
 modules = ["munych_api.modules.scoring", "munych_api.modules.results"]

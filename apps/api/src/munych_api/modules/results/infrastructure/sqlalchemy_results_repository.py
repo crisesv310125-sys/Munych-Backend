@@ -23,6 +23,14 @@ from munych_api.modules.results.domain.models import (
     ScoreValue,
     SessionInfo,
 )
+from munych_api.scoring_engine.staff import (
+    StaffEvaluation,
+    average_types,
+    candidate_results,
+    group_scores,
+    rubric_from_json,
+    values_from_json,
+)
 from munych_api.shared.database.tables import (
     awards,
     committee_judges,
@@ -38,7 +46,11 @@ from munych_api.shared.database.tables import (
     rubrics,
     scores,
     scoring_sessions,
+    staff_evaluations,
+    staff_members,
+    staff_types,
 )
+from munych_api.shared.kernel.catalog import EVENT_TYPES, VoterRole
 
 
 class SqlAlchemyResultsRepository:
@@ -176,7 +188,84 @@ class SqlAlchemyResultsRepository:
                 PeerVoteValue(v.voter_delegate_id, v.delegation_id, v.award_type) for v in vote_rows
             ),
             tiebreak_order=tuple(row.tiebreak_order or ()),
+            staff_role_scores=await self._staff_role_scores(
+                organization_id,
+                committee_id,
+                row.event_type,
+                {d.id: [p.id for p in by_delegation[d.id]] for d in delegation_rows},
+            ),
         )
+
+    async def _staff_role_scores(
+        self,
+        organization_id: UUID,
+        committee_id: UUID,
+        event_type: str,
+        delegates_of: dict[UUID, list[UUID]],
+    ) -> dict[VoterRole, dict[UUID, Decimal | None]]:
+        """Nota por delegación de los tipos de staff que cuentan en el ranking.
+
+        Los tipos de staff son de la organización; los candidatos (y por tanto las
+        evaluaciones que cuentan) son los de este comité. Solo los tipos configurados,
+        con rúbrica válida, cuyo alcance incluye el comité y cuyo peso existe en el tipo
+        de evento. Los tipos que evalúan delegados aportan el promedio de los delegados
+        de la delegación; varios tipos del mismo peso se promedian.
+        """
+        weights = EVENT_TYPES[event_type].voter_weights  # type: ignore[index]
+        type_rows = [
+            t
+            for t in (
+                await self._session.execute(
+                    select(staff_types).where(
+                        staff_types.c.organization_id == organization_id,
+                        staff_types.c.archived_at.is_(None),
+                        staff_types.c.counts_as.in_(("staff", "chair")),
+                        staff_types.c.evaluates.is_not(None),
+                    )
+                )
+            ).mappings()
+            if t["counts_as"] in weights
+            and (t["all_committees"] or committee_id in (t["committee_ids"] or []))
+        ]
+        per_role: dict[VoterRole, list[dict[str, Decimal | None]]] = defaultdict(list)
+        delegation_of = {p: d for d, people in delegates_of.items() for p in people}
+        for t in type_rows:
+            rubric = rubric_from_json(t["scale_min"], t["scale_max"], t["criteria"] or [])
+            if not rubric.valid:
+                continue
+            evaluations = await self._session.execute(
+                select(staff_evaluations.c.member_id, staff_evaluations.c.candidate_id)
+                .add_columns(staff_evaluations.c["values"])
+                .join(staff_members, staff_members.c.id == staff_evaluations.c.member_id)
+                .where(
+                    staff_members.c.staff_type_id == t["id"],
+                    (staff_members.c.removed_at.is_(None))
+                    | staff_members.c.evaluations_count.is_(True),
+                )
+            )
+            by_person = t["evaluates"] in ("delegates", "press")
+            candidates = list(delegation_of) if by_person else list(delegates_of)
+            results = candidate_results(
+                rubric,
+                (
+                    StaffEvaluation(str(e.member_id), str(e.candidate_id), values_from_json(e[2]))
+                    for e in evaluations
+                ),
+                [str(c) for c in candidates],
+                1,
+            )
+            scores = {r.candidate_id: r.score for r in results}
+            if by_person:
+                by_delegation = group_scores(
+                    scores, {str(d): [str(p) for p in ps] for d, ps in delegates_of.items()}
+                )
+            else:
+                by_delegation = {str(d): scores.get(str(d)) for d in delegates_of}
+            per_role[t["counts_as"]].append(by_delegation)
+        return {
+            role: {UUID(k): v for k, v in average_types(maps).items()}
+            for role, maps in per_role.items()
+        }
 
     async def set_tiebreak_order(self, committee_id: UUID, order: list[UUID]) -> None:
         await self._session.execute(

@@ -106,6 +106,12 @@ class CommitteeData:
     peer_votes: tuple[PeerVoteValue, ...] = ()
     tiebreak_order: tuple[UUID, ...] = ()
     """Desempate manual del admin: orden de las delegaciones que siguen empatadas."""
+    staff_role_scores: Mapping[VoterRole, Mapping[UUID, Decimal | None]] = field(
+        default_factory=dict
+    )
+    """Nota 0-100 por delegación que dan los tipos de staff que cuentan en el ranking
+    (`counts_as`), ya promediados entre sí. Si un rol aparece aquí, su nota sale de los
+    tipos de staff y no de las cuentas con ese rol en el comité (2026-11-08)."""
 
 
 # ---------------------------------------------------------------- ranking

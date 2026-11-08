@@ -261,6 +261,122 @@ awards = Table(
     schema="app",
 )
 
+# ---------------------------------------------------------------- staff (2026-11-08)
+
+staff_types = Table(
+    "staff_types",
+    metadata,
+    _id(),
+    Column(
+        "organization_id", UUID(as_uuid=True), ForeignKey("app.organizations.id"), nullable=False
+    ),
+    Column("name", Text, nullable=False),
+    Column("code", Text, nullable=False),
+    Column("color", Text, nullable=False, server_default="#98A6B5"),
+    Column("description", Text),
+    Column("evaluates", Text),
+    Column("all_committees", Boolean, nullable=False, server_default="true"),
+    Column("committee_ids", ARRAY(UUID(as_uuid=True)), nullable=False, server_default=text("'{}'")),
+    Column("min_evaluators", SmallInteger, nullable=False, server_default="2"),
+    Column("counts_as", Text, nullable=False, server_default="none"),
+    Column("scale_min", Numeric(6, 2), nullable=False, server_default="0"),
+    Column("scale_max", Numeric(6, 2), nullable=False, server_default="10"),
+    Column("scale_step", Numeric(6, 2), nullable=False, server_default="0.5"),
+    Column("criteria", JSONB, nullable=False, server_default=text("'[]'")),
+    Column("position", Integer, nullable=False, server_default="0"),
+    Column("archived_at", DateTime(timezone=True)),
+    *_timestamps(),
+    schema="app",
+)
+
+staff_people = Table(
+    "staff_people",
+    metadata,
+    _id(),
+    Column(
+        "organization_id", UUID(as_uuid=True), ForeignKey("app.organizations.id"), nullable=False
+    ),
+    Column("full_name", Text, nullable=False),
+    Column("email", Text),
+    Column("title", Text),
+    Column("token_hash", Text, unique=True),
+    Column("token_issued_at", DateTime(timezone=True)),
+    Column("token_expires_at", DateTime(timezone=True)),
+    Column("last_used_at", DateTime(timezone=True)),
+    *_timestamps(),
+    schema="app",
+)
+
+staff_members = Table(
+    "staff_members",
+    metadata,
+    _id(),
+    Column("staff_type_id", UUID(as_uuid=True), ForeignKey("app.staff_types.id"), nullable=False),
+    Column("person_id", UUID(as_uuid=True), ForeignKey("app.staff_people.id"), nullable=False),
+    Column("role", Text, nullable=False, server_default="evaluator"),
+    Column("committee_ids", ARRAY(UUID(as_uuid=True)), nullable=False, server_default=text("'{}'")),
+    Column("removed_at", DateTime(timezone=True)),
+    Column("evaluations_count", Boolean, nullable=False, server_default="true"),
+    *_timestamps(),
+    schema="app",
+)
+
+staff_evaluations = Table(
+    "staff_evaluations",
+    metadata,
+    _id(),
+    Column("member_id", UUID(as_uuid=True), ForeignKey("app.staff_members.id"), nullable=False),
+    Column("candidate_id", UUID(as_uuid=True), nullable=False),
+    Column("values", JSONB, nullable=False, server_default=text("'{}'")),
+    Column("comment", Text),
+    Column("client_updated_at", DateTime(timezone=True)),
+    *_timestamps(),
+    schema="app",
+)
+
+staff_awards = Table(
+    "staff_awards",
+    metadata,
+    _id(),
+    Column("staff_type_id", UUID(as_uuid=True), ForeignKey("app.staff_types.id"), nullable=False),
+    Column("name", Text, nullable=False),
+    Column("winners", SmallInteger, nullable=False, server_default="1"),
+    Column("scope", Text, nullable=False, server_default="event"),
+    Column("tiebreak_criterion_id", Text),
+    Column("position", Integer, nullable=False, server_default="0"),
+    Column("archived_at", DateTime(timezone=True)),
+    *_timestamps(),
+    schema="app",
+)
+
+staff_award_assignments = Table(
+    "staff_award_assignments",
+    metadata,
+    _id(),
+    Column("award_id", UUID(as_uuid=True), ForeignKey("app.staff_awards.id"), nullable=False),
+    Column("event_id", UUID(as_uuid=True), ForeignKey("app.events.id"), nullable=False),
+    Column("committee_id", UUID(as_uuid=True), ForeignKey("app.committees.id")),
+    Column("position", SmallInteger, nullable=False),
+    Column("candidate_id", UUID(as_uuid=True)),
+    Column("suggested_candidate_id", UUID(as_uuid=True)),
+    Column("override_reason", Text),
+    Column("assigned_by", UUID(as_uuid=True)),
+    Column("assigned_at", DateTime(timezone=True)),
+    *_timestamps(),
+    schema="app",
+)
+
+staff_award_confirmations = Table(
+    "staff_award_confirmations",
+    metadata,
+    Column("staff_type_id", UUID(as_uuid=True), ForeignKey("app.staff_types.id"), primary_key=True),
+    Column("event_id", UUID(as_uuid=True), ForeignKey("app.events.id"), primary_key=True),
+    Column("confirmed_at", DateTime(timezone=True)),
+    Column("confirmed_by", UUID(as_uuid=True)),
+    *_timestamps(),
+    schema="app",
+)
+
 result_snapshots = Table(
     "result_snapshots",
     metadata,

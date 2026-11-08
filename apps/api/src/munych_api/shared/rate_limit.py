@@ -17,6 +17,8 @@ INVITES_LIMIT = "20/minute"
 # Los delegados comparten la IP del lugar (NAT): su límite va por token, no por IP.
 BALLOT_LIMIT = "20/minute"
 VOTES_LIMIT = "30/minute"
+# Autoguardado del staff (como el lote de calificaciones del juez), por enlace personal.
+STAFF_EVALUATIONS_LIMIT = "120/minute"
 
 
 def voter_key(request: Request) -> str:
