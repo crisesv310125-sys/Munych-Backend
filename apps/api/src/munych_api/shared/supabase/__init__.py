@@ -34,6 +34,16 @@ class AuthAdmin(Protocol):
         """Fusiona `data` en el `user_metadata` del usuario."""
         ...
 
+    async def create_confirmed_user(self, email: str, data: Mapping[str, str]) -> UUID:
+        """Crea el usuario ya confirmado y sin enviar correo (staff con QR: no usa contraseña)."""
+        ...
+
+    async def send_magic_link(self, email: str) -> None:
+        """Envía el correo con la plantilla **Magic Link** de Supabase (`{{ .Data.* }}` sale del
+        `user_metadata`). Se usa para el correo con el QR del staff: el panel no usa enlaces
+        mágicos para entrar, así que esa plantilla queda libre."""
+        ...
+
 
 class ObjectStorage(Protocol):
     async def upload(self, bucket: str, path: str, content: bytes, content_type: str) -> None: ...
@@ -94,6 +104,32 @@ class SupabaseAdmin:
     async def update_user_metadata(self, user_id: UUID, data: Mapping[str, str]) -> None:
         client = await self._get_client()
         await client.auth.admin.update_user_by_id(str(user_id), {"user_metadata": dict(data)})
+
+    async def create_confirmed_user(self, email: str, data: Mapping[str, str]) -> UUID:
+        client = await self._get_client()
+        response = await client.auth.admin.create_user(
+            {"email": email, "email_confirm": True, "user_metadata": dict(data)}
+        )
+        if response.user is None:  # pragma: no cover — respuesta anómala de GoTrue
+            raise RuntimeError("Supabase no devolvió el usuario creado")
+        return UUID(str(response.user.id))
+
+    async def send_magic_link(self, email: str) -> None:
+        from supabase_auth.errors import AuthApiError  # noqa: PLC0415 — solo si se usa
+
+        client = await self._get_client()
+        try:
+            await client.auth.sign_in_with_otp(
+                {"email": email, "options": {"should_create_user": False}}
+            )
+        except AuthApiError as exc:
+            if exc.status == 429:
+                raise DomainError(
+                    ErrorCode.RATE_LIMITED,
+                    "Supabase limitó el envío de correos (uno por minuto por persona); "
+                    "espera un momento e inténtalo de nuevo",
+                ) from exc
+            raise
 
     async def upload(self, bucket: str, path: str, content: bytes, content_type: str) -> None:
         client = await self._get_client()

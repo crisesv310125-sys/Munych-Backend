@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from munych_api.shared.database.tables import (
     auth_users,
+    committee_judges,
     committees,
     delegates,
     delegations,
@@ -403,24 +404,103 @@ class StaffRepository:
             )
 
     async def upsert_member(
-        self, type_id: UUID, person_id: UUID, role: str, committee_ids: list[UUID]
+        self,
+        type_id: UUID,
+        person_id: UUID,
+        role: str,
+        committee_ids: list[UUID],
+        *,
+        event_id: UUID | None,
+        judge_id: UUID | None = None,
     ) -> UUID:
-        """Añade a la persona al tipo; si era exmiembro, la vuelve a activar."""
-        stmt = pg_insert(staff_members).values(
-            staff_type_id=type_id, person_id=person_id, role=role, committee_ids=committee_ids
+        """Añade a la persona al tipo en ese evento; si era exmiembro, la vuelve a activar.
+
+        Sin borrar: si ya existe la fila (tipo, persona, evento), se actualiza.
+        """
+        event_match = (
+            staff_members.c.event_id.is_(None)
+            if event_id is None
+            else staff_members.c.event_id == event_id
         )
-        member_id = await self._session.scalar(
-            stmt.on_conflict_do_update(
-                index_elements=[staff_members.c.staff_type_id, staff_members.c.person_id],
-                set_={
-                    "role": stmt.excluded.role,
-                    "committee_ids": stmt.excluded.committee_ids,
-                    "removed_at": None,
-                    "evaluations_count": True,
-                },
-            ).returning(staff_members.c.id)
+        existing = await self._session.scalar(
+            select(staff_members.c.id).where(
+                staff_members.c.staff_type_id == type_id,
+                staff_members.c.person_id == person_id,
+                event_match,
+            )
         )
-        return UUID(str(member_id))
+        values: dict[str, Any] = {
+            "role": role,
+            "committee_ids": committee_ids,
+            "removed_at": None,
+            "evaluations_count": True,
+        }
+        if judge_id is not None:
+            values["judge_id"] = judge_id
+        if existing is not None:
+            await self._session.execute(
+                update(staff_members).where(staff_members.c.id == existing).values(**values)
+            )
+            return UUID(str(existing))
+        return UUID(
+            str(
+                await self._session.scalar(
+                    insert(staff_members)
+                    .values(staff_type_id=type_id, person_id=person_id, event_id=event_id, **values)
+                    .returning(staff_members.c.id)
+                )
+            )
+        )
+
+    async def event_members(self, event_id: UUID, organization_id: UUID) -> list[dict[str, Any]]:
+        """Personas del staff asignadas a ese evento (o a todos), con su tipo de staff."""
+        return _rows(
+            await self._session.execute(
+                select(
+                    staff_members,
+                    staff_people.c.full_name,
+                    staff_people.c.email,
+                    staff_people.c.title,
+                    staff_people.c.token_issued_at,
+                    staff_people.c.token_expires_at,
+                    staff_people.c.last_used_at,
+                    staff_types.c.name.label("type_name"),
+                    staff_types.c.code.label("type_code"),
+                    staff_types.c.color.label("type_color"),
+                    staff_types.c.access.label("type_access"),
+                )
+                .join(staff_people, staff_people.c.id == staff_members.c.person_id)
+                .join(staff_types, staff_types.c.id == staff_members.c.staff_type_id)
+                .where(
+                    staff_types.c.organization_id == organization_id,
+                    staff_types.c.archived_at.is_(None),
+                    staff_members.c.removed_at.is_(None),
+                    (staff_members.c.event_id == event_id) | staff_members.c.event_id.is_(None),
+                )
+                .order_by(staff_types.c.position, staff_people.c.full_name, staff_members.c.id)
+            )
+        )
+
+    async def user_id_by_email(self, email: str) -> UUID | None:
+        user_id = await self._session.scalar(
+            select(auth_users.c.id).where(func.lower(auth_users.c.email) == email.lower())
+        )
+        return UUID(str(user_id)) if user_id is not None else None
+
+    async def assign_committee_role(
+        self, judge_id: UUID, committee_ids: Sequence[UUID], role: str
+    ) -> None:
+        """Asigna la cuenta a esos comités con ese rol (si ya estaba, cambia el rol)."""
+        for committee_id in committee_ids:
+            stmt = pg_insert(committee_judges).values(
+                committee_id=committee_id, judge_id=judge_id, role=role
+            )
+            await self._session.execute(
+                stmt.on_conflict_do_update(
+                    index_elements=[committee_judges.c.committee_id, committee_judges.c.judge_id],
+                    set_={"role": stmt.excluded.role},
+                )
+            )
 
     async def update_member(self, member_id: UUID, values: dict[str, Any]) -> None:
         if values:
@@ -457,6 +537,7 @@ class StaffRepository:
                     staff_members.c.id.label("member_id"),
                     staff_members.c.role,
                     staff_members.c.committee_ids.label("member_committee_ids"),
+                    staff_members.c.event_id.label("member_event_id"),
                     staff_types,
                 )
                 .join(staff_types, staff_types.c.id == staff_members.c.staff_type_id)

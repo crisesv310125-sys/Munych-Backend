@@ -12,6 +12,8 @@ Evaluates = Literal["delegations", "delegates", "position_papers", "press"]
 CountsAs = Literal["none", "staff", "chair"]
 """none: solo premios · staff: peso Staff del ranking · chair: peso Mesa Directiva."""
 MemberRole = Literal["coordinator", "evaluator"]
+AccessMode = Literal["link", "account"]
+"""link: QR sin cuenta · account: cuenta con contraseña y panel del juez (Mesa Directiva)."""
 AccessStatus = Literal["not_invited", "invited", "active", "expired"]
 AwardScope = Literal["event", "per_committee"]
 StaffTypeStatus = Literal[
@@ -140,6 +142,7 @@ class StaffTypeIn(BaseModel):
     committee_ids: list[UUID] = Field(default_factory=list, max_length=200)
     min_evaluators: Annotated[int, Field(ge=1, le=20)] = 2
     counts_as: CountsAs = "none"
+    access: AccessMode = "link"
     template: RubricTemplate = "blank"
     awards: list[AwardIn] = Field(default_factory=list, max_length=20)
 
@@ -159,6 +162,7 @@ class StaffTypePatch(BaseModel):
     committee_ids: list[UUID] | None = Field(default=None, max_length=200)
     min_evaluators: Annotated[int, Field(ge=1, le=20)] | None = None
     counts_as: CountsAs | None = None
+    access: AccessMode | None = None
     archived: bool | None = Field(default=None, description="true: oculta el tipo (no se borra)")
 
 
@@ -173,6 +177,7 @@ class StaffTypeSummaryOut(BaseModel):
     committee_ids: list[UUID]
     min_evaluators: int
     counts_as: CountsAs
+    access: AccessMode
     criteria_count: int
     weight_sum: float
     rubric_valid: bool
@@ -324,6 +329,68 @@ class AccessLinkOut(BaseModel):
     token: str
     url: str
     expires_at: datetime
+
+
+# ---------------------------------------------------------------- invitar (por evento)
+
+
+class StaffInviteIn(BaseModel):
+    """Invitación desde la pantalla de jueces del evento: el rol se elige desde el inicio.
+
+    - `role = "judge"`: juez (solo si el tipo de evento tiene jueces). Correo para crear
+      contraseña.
+    - `role = "staff"` con un tipo de acceso `account` (Mesa Directiva): correo para crear
+      contraseña y rol de mesa en los comités elegidos (al menos uno).
+    - `role = "staff"` con un tipo de acceso `link`: correo con su QR de acceso personal.
+    """
+
+    full_name: Annotated[str, Field(min_length=1, max_length=120)]
+    email: Annotated[str, Field(max_length=200, pattern=r"^[^@\s]+@[^@\s]+$")]
+    role: Literal["judge", "staff"]
+    staff_type_id: UUID | None = None
+    committee_ids: list[UUID] = Field(default_factory=list, max_length=50)
+    member_role: MemberRole = "evaluator"
+    title: Annotated[str, Field(max_length=160)] | None = None
+
+    @field_validator("full_name")
+    @classmethod
+    def _trim(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("email")
+    @classmethod
+    def _email(cls, value: str) -> str:
+        return value.strip().lower()
+
+
+class StaffInviteOut(BaseModel):
+    kind: Literal["judge", "account", "link"]
+    """judge/account: se envió la invitación con contraseña; link: se envió el QR."""
+    email: str
+    full_name: str
+    staff_type: str | None
+    emailed: bool
+    url: str | None = Field(
+        default=None, description="Enlace personal (solo `link`); solo se devuelve aquí"
+    )
+
+
+class EventStaffMemberOut(BaseModel):
+    """Una persona del staff en el evento (pantalla de jueces del evento)."""
+
+    member_id: UUID
+    person_id: UUID
+    full_name: str
+    email: str | None
+    title: str | None
+    staff_type_id: UUID
+    staff_type: str
+    code: str
+    color: str
+    access_mode: AccessMode
+    role: MemberRole
+    committee_ids: list[UUID]
+    access: AccessStatus
 
 
 # ---------------------------------------------------------------- ranking

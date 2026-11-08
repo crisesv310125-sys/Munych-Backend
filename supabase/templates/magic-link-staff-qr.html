@@ -1,0 +1,39 @@
+<!--
+  Plantilla «Magic Link» de Supabase Auth → correo con el QR de acceso del staff.
+
+  Pégala en Supabase → Authentication → Emails → Templates → Magic Link
+  (Asunto sugerido: «Tu acceso de staff · {{ .Data.event_name }}»).
+
+  El panel no usa enlaces mágicos para entrar (jueces y mesa entran con contraseña), así
+  que esta plantilla se usa solo para el staff con QR. Los datos vienen del user_metadata
+  que pone el backend justo antes de enviar ({{ .Data.* }}); el enlace se borra después.
+  No incluyas {{ .ConfirmationURL }}: el staff no entra al panel con cuenta.
+-->
+<div style="font-family: Arial, Helvetica, sans-serif; max-width: 520px; margin: 0 auto; color: #16223f;">
+  <div style="background: #1a3079; color: #ffffff; padding: 22px 26px; border-radius: 10px 10px 0 0;">
+    <div style="font-size: 11px; letter-spacing: 2px; opacity: 0.75;">MUNYCH ASSOCIATION</div>
+    <div style="font-size: 22px; font-weight: bold; margin-top: 4px;">{{ .Data.event_name }}</div>
+  </div>
+  <div style="border: 1px solid #e3e8ef; border-top: none; padding: 26px; border-radius: 0 0 10px 10px;">
+    <p style="font-size: 15px; margin: 0 0 12px;">Hola {{ .Data.full_name }}:</p>
+    <p style="font-size: 14px; line-height: 1.55; margin: 0 0 18px;">
+      Formas parte del staff de <strong>{{ .Data.staff_type }}</strong>. Este es tu acceso personal para
+      evaluar desde tu teléfono: escanea el código QR o toca el botón.
+    </p>
+    <div style="text-align: center; margin: 22px 0;">
+      <img src="{{ .Data.staff_qr_url }}" alt="Código QR de acceso" width="220" height="220"
+           style="width: 220px; height: 220px; border: 1px solid #e3e8ef; border-radius: 8px;" />
+    </div>
+    <div style="text-align: center; margin: 0 0 22px;">
+      <a href="{{ .Data.staff_url }}"
+         style="display: inline-block; background: #1a3079; color: #ffffff; text-decoration: none;
+                font-weight: bold; font-size: 14px; padding: 12px 22px; border-radius: 8px;">
+        Abrir mi acceso
+      </a>
+    </div>
+    <p style="font-size: 12px; color: #5b6b7c; line-height: 1.5; margin: 0;">
+      Es personal: no lo compartas, quien lo tenga puede evaluar a tu nombre. Si lo pierdes, pide uno
+      nuevo a la coordinación del evento (el anterior deja de funcionar).
+    </p>
+  </div>
+</div>

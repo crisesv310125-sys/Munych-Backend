@@ -223,6 +223,8 @@ class SqlAlchemyResultsRepository:
                     select(staff_types).where(
                         staff_types.c.organization_id == organization_id,
                         staff_types.c.archived_at.is_(None),
+                        # Los tipos con cuenta (Mesa) califican en el panel del juez.
+                        staff_types.c.access == "link",
                         staff_types.c.counts_as.in_(("staff", "chair")),
                         staff_types.c.evaluates.is_not(None),
                     )

@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query, Request, Response
 
 from munych_api.modules.staff.dependencies import CurrentStaffPerson, StaffServiceDep
 from munych_api.modules.staff.schemas import (
@@ -11,6 +11,7 @@ from munych_api.modules.staff.schemas import (
     AwardIn,
     AwardPatch,
     ConfirmAwardsIn,
+    EventStaffMemberOut,
     MemberIn,
     MemberPatch,
     PersonOut,
@@ -19,6 +20,8 @@ from munych_api.modules.staff.schemas import (
     RubricIn,
     StaffEvaluationIn,
     StaffEvaluationOut,
+    StaffInviteIn,
+    StaffInviteOut,
     StaffMeOut,
     StaffOverviewOut,
     StaffTypeDetailOut,
@@ -28,6 +31,7 @@ from munych_api.modules.staff.schemas import (
 from munych_api.shared.auth import AdminUser, OrganizationId
 from munych_api.shared.rate_limit import (
     BALLOT_LIMIT,
+    INVITES_LIMIT,
     STAFF_EVALUATIONS_LIMIT,
     limiter,
     voter_key,
@@ -244,6 +248,62 @@ async def confirm_staff_awards(
 ) -> StaffTypeDetailOut:
     """Congela los premios del staff en el evento (todos asignados) o los reabre."""
     return await service.confirm_awards(organization_id, type_id, body, user.user_id)
+
+
+# ---------------------------------------------------------------- personas del evento
+
+
+@router.get("/events/{event_id}/staff-members")
+async def list_event_staff(
+    event_id: UUID, _: AdminUser, organization_id: OrganizationId, service: StaffServiceDep
+) -> list[EventStaffMemberOut]:
+    """Personas del staff asignadas al evento, con su tipo y el estado de su acceso."""
+    return await service.event_members(organization_id, event_id)
+
+
+@router.post("/events/{event_id}/invitations", status_code=201)
+@limiter.limit(INVITES_LIMIT)
+async def invite_to_event(
+    request: Request,
+    event_id: UUID,
+    body: StaffInviteIn,
+    _: AdminUser,
+    organization_id: OrganizationId,
+    service: StaffServiceDep,
+) -> StaffInviteOut:
+    """Invita a alguien al evento con su rol: juez o un tipo de staff.
+
+    Juez y tipos con cuenta (Mesa Directiva): correo para crear contraseña (plantilla
+    «Invite user»). Tipos sin cuenta: correo con su QR de acceso (plantilla «Magic Link»).
+    """
+    return await service.invite(organization_id, event_id, body)
+
+
+@router.post("/staff-members/{member_id}/access")
+@limiter.limit(INVITES_LIMIT)
+async def resend_staff_access(
+    request: Request,
+    member_id: UUID,
+    _: AdminUser,
+    organization_id: OrganizationId,
+    service: StaffServiceDep,
+) -> StaffInviteOut:
+    """Genera un QR nuevo (el anterior deja de servir) y lo reenvía por correo."""
+    return await service.resend_access(organization_id, member_id)
+
+
+@router.get(
+    "/staff/qr/{token}.png",
+    response_class=Response,
+    responses={200: {"content": {"image/png": {}}, "description": "QR del enlace personal"}},
+)
+async def staff_qr(token: str, service: StaffServiceDep) -> Response:
+    """Imagen del QR que se muestra en el correo del staff. Solo con un token vigente."""
+    return Response(
+        content=await service.qr_png(token),
+        media_type="image/png",
+        headers={"Cache-Control": "private, no-store"},
+    )
 
 
 # ---------------------------------------------------------------- miembro del staff (enlace)

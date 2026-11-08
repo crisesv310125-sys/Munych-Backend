@@ -14,6 +14,7 @@ Nada se borra: quitar un tipo, un premio o un miembro los marca (`archived_at`,
 `removed_at`) y las evaluaciones se conservan.
 """
 
+import io
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -21,6 +22,10 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
+import segno
+
+from munych_api.modules.identity.schemas import JudgeInvite
+from munych_api.modules.identity.service import IdentityService
 from munych_api.modules.staff.repository import StaffRepository
 from munych_api.modules.staff.schemas import (
     AccessLinkIn,
@@ -35,6 +40,7 @@ from munych_api.modules.staff.schemas import (
     ConfirmAwardsIn,
     CriterionOut,
     EventRefOut,
+    EventStaffMemberOut,
     MemberIn,
     MemberOut,
     MemberPatch,
@@ -48,6 +54,8 @@ from munych_api.modules.staff.schemas import (
     StaffCandidateOut,
     StaffEvaluationIn,
     StaffEvaluationOut,
+    StaffInviteIn,
+    StaffInviteOut,
     StaffMeOut,
     StaffOverviewOut,
     StaffTypeDetailOut,
@@ -69,6 +77,7 @@ from munych_api.scoring_engine.staff import (
 )
 from munych_api.shared.kernel import Clock, DomainError, ErrorCode, NotFoundError
 from munych_api.shared.kernel.catalog import EVENT_TYPES
+from munych_api.shared.supabase import AuthAdmin
 
 INVALID_LINK = "Tu enlace no es válido o ya venció. Pide uno nuevo a la coordinación del evento"
 TOUCH_INTERVAL = timedelta(minutes=5)
@@ -334,9 +343,22 @@ def _closed_reason(row: dict[str, Any], confirmed_at: datetime | None) -> str | 
 
 
 class StaffService:
-    def __init__(self, repository: StaffRepository, clock: Clock) -> None:
+    def __init__(
+        self,
+        repository: StaffRepository,
+        clock: Clock,
+        *,
+        identity: IdentityService | None = None,
+        auth_admin: AuthAdmin | None = None,
+        panel_url: str = "http://localhost:5173",
+        api_url: str = "http://127.0.0.1:8000/api/v1",
+    ) -> None:
         self._repo = repository
         self._clock = clock
+        self._identity = identity
+        self._auth_admin = auth_admin
+        self._panel_url = panel_url
+        self._api_url = api_url
 
     # ------------------------------------------------------------ carga
 
@@ -372,13 +394,20 @@ class StaffService:
         evaluations = await self._repo.evaluations([m["id"] for m in members])
         out: list[_TypeContext] = []
         for row in rows:
-            type_members = [m for m in members if m["staff_type_id"] == row["id"]]
+            # Las personas son por evento: las de este evento y las anteriores al cambio (null).
+            type_members = [
+                m
+                for m in members
+                if m["staff_type_id"] == row["id"]
+                and (m.get("event_id") is None or (event and m.get("event_id") == event["id"]))
+            ]
             member_ids = {m["id"] for m in type_members}
             type_awards = [a for a in awards if a["staff_type_id"] == row["id"]]
             award_ids = {a["id"] for a in type_awards}
+            # Los tipos con cuenta (Mesa Directiva) califican en el panel del juez, no aquí.
             candidates = (
                 await self._repo.candidates(event["id"], row["evaluates"], _scope(row, committees))
-                if event and row["evaluates"]
+                if event and row["evaluates"] and row.get("access", "link") == "link"
                 else []
             )
             candidate_ids = {c["candidate_id"] for c in candidates}
@@ -416,6 +445,7 @@ class StaffService:
             "committee_ids": list(ctx.row["committee_ids"] or []),
             "min_evaluators": ctx.row["min_evaluators"],
             "counts_as": ctx.row["counts_as"],
+            "access": ctx.row.get("access", "link"),
             "criteria_count": len(ctx.rubric.criteria),
             "weight_sum": float(ctx.rubric.weight_sum),
             "rubric_valid": ctx.rubric.valid,
@@ -547,6 +577,7 @@ class StaffService:
                 "committee_ids": [] if body.all_committees else committee_ids,
                 "min_evaluators": body.min_evaluators,
                 "counts_as": body.counts_as,
+                "access": body.access,
                 "criteria": template_criteria(body.template),
             }
         )
@@ -586,7 +617,7 @@ class StaffService:
             values["name"] = name
         if data.get("code") is not None:
             values["code"] = data["code"].upper()
-        for key in ("color", "min_evaluators", "counts_as", "all_committees"):
+        for key in ("color", "min_evaluators", "counts_as", "all_committees", "access"):
             if data.get(key) is not None:
                 values[key] = data[key]
         if "description" in data:
@@ -905,8 +936,235 @@ class StaffService:
                 )
         else:
             raise DomainError(ErrorCode.VALIDATION_ERROR, "Indica la persona a añadir")
-        await self._repo.upsert_member(type_id, person_id, body.role, committee_ids)
-        return await self.detail(organization_id, type_id, event_id)
+        # Las personas son por evento: el de contexto (o el activo más reciente).
+        _, event = await self._event_context(organization_id, event_id)
+        if event is None:
+            raise DomainError(ErrorCode.CONFLICT, "Crea un evento antes de añadir personas")
+        await self._repo.upsert_member(
+            type_id, person_id, body.role, committee_ids, event_id=event["id"]
+        )
+        return await self.detail(organization_id, type_id, event["id"])
+
+    # ------------------------------------------------------------ invitar (por evento)
+
+    def access_url(self, token: str) -> str:
+        """Enlace del QR: la vista del staff en el panel (`#/staff/evaluar/<token>`)."""
+        return f"{self._panel_url.rstrip('/')}/#/staff/evaluar/{token}"
+
+    def qr_image_url(self, token: str) -> str:
+        """Imagen PNG del QR servida por esta API (los correos no muestran imágenes en línea)."""
+        return f"{self._api_url.rstrip('/')}/staff/qr/{token}.png"
+
+    async def event_members(
+        self, organization_id: UUID, event_id: UUID
+    ) -> list[EventStaffMemberOut]:
+        _, event = await self._event_context(organization_id, event_id)
+        assert event is not None  # noqa: S101 — _event_context lanza 404 si no existe
+        now = self._clock.now()
+        return [
+            EventStaffMemberOut(
+                member_id=m["id"],
+                person_id=m["person_id"],
+                full_name=m["full_name"],
+                email=m["email"],
+                title=m["title"],
+                staff_type_id=m["staff_type_id"],
+                staff_type=m["type_name"],
+                code=m["type_code"],
+                color=m["type_color"],
+                access_mode=m["type_access"],
+                role=m["role"],
+                committee_ids=list(m["committee_ids"] or []),
+                access=access_status(m, now),
+            )
+            for m in await self._repo.event_members(event_id, organization_id)
+        ]
+
+    async def invite(
+        self, organization_id: UUID, event_id: UUID, body: StaffInviteIn
+    ) -> StaffInviteOut:
+        """Invita a una persona al evento con su rol desde el inicio (pantalla de jueces).
+
+        Juez y tipos con cuenta (Mesa Directiva): correo para crear contraseña (plantilla
+        «Invite user»); la mesa queda con rol de mesa en sus comités. Tipos sin cuenta:
+        enlace personal y correo con el QR (plantilla «Magic Link»).
+        """
+        if self._identity is None or self._auth_admin is None:  # pragma: no cover
+            raise RuntimeError("StaffService sin identidad ni Auth configurados")
+        _, event = await self._event_context(organization_id, event_id)
+        assert event is not None  # noqa: S101
+        if event["status"] == "closed":
+            raise DomainError(ErrorCode.EVENT_CLOSED, "El evento está cerrado")
+        committees = {c["id"] for c in await self._repo.event_committees(event_id)}
+        committee_ids = list(dict.fromkeys(body.committee_ids))
+        if not set(committee_ids) <= committees:
+            raise NotFoundError("Algún comité no pertenece a este evento")
+
+        if body.role == "judge":
+            if "judge" not in EVENT_TYPES[event["event_type"]].voter_weights:
+                raise DomainError(
+                    ErrorCode.CONFLICT,
+                    "En este tipo de evento no hay jueces: elige un rol de staff",
+                )
+            judge = await self._identity.invite_judge(
+                organization_id,
+                JudgeInvite(email=body.email, full_name=body.full_name, event_id=event_id),
+            )
+            await self._repo.assign_committee_role(judge.judge_id, committee_ids, "judge")
+            return StaffInviteOut(
+                kind="judge",
+                email=body.email,
+                full_name=body.full_name,
+                staff_type=None,
+                emailed=True,
+            )
+
+        if body.staff_type_id is None:
+            raise DomainError(ErrorCode.VALIDATION_ERROR, "Elige el tipo de staff")
+        staff_type = await self._require_type(organization_id, body.staff_type_id)
+        person_id = await self._person_for(organization_id, body)
+
+        if staff_type.get("access", "link") == "account":
+            if not committee_ids:
+                raise DomainError(
+                    ErrorCode.VALIDATION_ERROR, f"Elige el comité de {staff_type['name']}"
+                )
+            judge = await self._identity.invite_judge(
+                organization_id,
+                JudgeInvite(email=body.email, full_name=body.full_name, event_id=event_id),
+            )
+            await self._repo.assign_committee_role(judge.judge_id, committee_ids, "chair")
+            await self._repo.upsert_member(
+                staff_type["id"],
+                person_id,
+                body.member_role,
+                committee_ids,
+                event_id=event_id,
+                judge_id=judge.judge_id,
+            )
+            return StaffInviteOut(
+                kind="account",
+                email=body.email,
+                full_name=body.full_name,
+                staff_type=staff_type["name"],
+                emailed=True,
+            )
+
+        await self._repo.upsert_member(
+            staff_type["id"], person_id, body.member_role, committee_ids, event_id=event_id
+        )
+        token = await self._new_token(person_id, event)
+        await self._email_qr(body.email, body.full_name, staff_type["name"], event, token)
+        return StaffInviteOut(
+            kind="link",
+            email=body.email,
+            full_name=body.full_name,
+            staff_type=staff_type["name"],
+            emailed=True,
+            url=self.access_url(token),
+        )
+
+    async def resend_access(self, organization_id: UUID, member_id: UUID) -> StaffInviteOut:
+        """Genera un QR nuevo (el anterior deja de servir) y lo vuelve a enviar por correo."""
+        member = await self._repo.get_member(member_id, organization_id)
+        if member is None or member["removed_at"] is not None:
+            raise NotFoundError("Miembro no encontrado")
+        person = await self._repo.get_person(member["person_id"], organization_id)
+        staff_type = await self._require_type(organization_id, member["staff_type_id"])
+        if person is None or not person["email"]:
+            raise DomainError(ErrorCode.CONFLICT, "Esta persona no tiene correo registrado")
+        if staff_type.get("access", "link") == "account":
+            raise DomainError(
+                ErrorCode.CONFLICT, "Este rol entra con contraseña: reenvía su invitación desde"
+            )
+        _, event = await self._event_context(organization_id, member.get("event_id"))
+        if event is None:
+            raise DomainError(ErrorCode.CONFLICT, "La organización no tiene eventos")
+        token = await self._new_token(person["id"], event)
+        await self._email_qr(person["email"], person["full_name"], staff_type["name"], event, token)
+        return StaffInviteOut(
+            kind="link",
+            email=person["email"],
+            full_name=person["full_name"],
+            staff_type=staff_type["name"],
+            emailed=True,
+            url=self.access_url(token),
+        )
+
+    async def _person_for(self, organization_id: UUID, body: StaffInviteIn) -> UUID:
+        email = body.email.lower()
+        existing = await self._repo.person_by_email(organization_id, email)
+        if existing is not None:
+            values: dict[str, Any] = {"full_name": body.full_name}
+            if body.title:
+                values["title"] = body.title
+            await self._repo.update_person(existing["id"], values)
+            return UUID(str(existing["id"]))
+        return await self._repo.insert_person(
+            {
+                "organization_id": organization_id,
+                "full_name": body.full_name,
+                "email": email,
+                "title": body.title,
+            }
+        )
+
+    async def _new_token(self, person_id: UUID, event: dict[str, Any]) -> str:
+        token = new_token()
+        now = self._clock.now()
+        await self._repo.update_person(
+            person_id,
+            {
+                "token_hash": hash_token(token),
+                "token_issued_at": now,
+                "token_expires_at": max(expires_at(event["ends_on"]), now + timedelta(days=1)),
+                "last_used_at": None,
+            },
+        )
+        return token
+
+    async def _email_qr(
+        self, email: str, full_name: str, staff_type: str, event: dict[str, Any], token: str
+    ) -> None:
+        """Correo con el QR usando la plantilla Magic Link de Supabase.
+
+        Los datos del correo viajan en el `user_metadata` de una cuenta confirmada y sin rol
+        (no puede entrar al panel). El enlace se borra del metadata justo después de enviar:
+        en la base solo queda el hash del token.
+        """
+        assert self._auth_admin is not None  # noqa: S101
+        data = {
+            "full_name": full_name,
+            "event_name": event["name"],
+            "staff_type": staff_type,
+            "staff_url": self.access_url(token),
+            "staff_qr_url": self.qr_image_url(token),
+        }
+        user_id = await self._repo.user_id_by_email(email)
+        if user_id is None:
+            user_id = await self._auth_admin.create_confirmed_user(email, data)
+        else:
+            await self._auth_admin.update_user_metadata(user_id, data)
+        try:
+            await self._auth_admin.send_magic_link(email)
+        finally:
+            await self._auth_admin.update_user_metadata(
+                user_id, {"staff_url": "", "staff_qr_url": ""}
+            )
+
+    async def qr_png(self, token: str) -> bytes:
+        """PNG del QR del enlace personal (para el correo). Solo si el token es vigente."""
+        if not looks_like_token(token):
+            raise NotFoundError("QR no encontrado")
+        person = await self._repo.person_by_token_hash(hash_token(token))
+        now = self._clock.now()
+        if person is None or (
+            person["token_expires_at"] is not None and person["token_expires_at"] <= now
+        ):
+            raise NotFoundError("QR no encontrado")
+        buffer = io.BytesIO()
+        segno.make(self.access_url(token), error="m").save(buffer, kind="png", scale=8, border=2)
+        return buffer.getvalue()
 
     async def update_member(
         self,
@@ -1043,8 +1301,14 @@ class StaffService:
         return [e for e in await self._repo.events(organization_id) if e["status"] != "closed"]
 
     async def me(self, person: StaffPerson) -> StaffMeOut:
-        """Lo que le toca evaluar: por cada tipo de staff y evento no cerrado con candidatos."""
-        rows = await self._repo.person_types(person.id)
+        """Lo que le toca evaluar: por cada tipo de staff y evento no cerrado con candidatos.
+
+        Solo tipos con QR (los de cuenta califican en el panel del juez) y solo los eventos
+        a los que se asignó a la persona (o todos, si su asignación es anterior al cambio).
+        """
+        rows = [
+            r for r in await self._repo.person_types(person.id) if r.get("access", "link") == "link"
+        ]
         events = await self._open_events(person.organization_id)
         evaluations = {
             (e["member_id"], e["candidate_id"]): e
@@ -1055,6 +1319,8 @@ class StaffService:
             committees = await self._repo.event_committees(event["id"])
             confirmations = await self._repo.confirmations([r["id"] for r in rows], event["id"])
             for r in rows:
+                if r.get("member_event_id") not in (None, event["id"]):
+                    continue  # asignada a otro evento
                 candidates = (
                     _member_candidates(
                         r,
@@ -1123,8 +1389,10 @@ class StaffService:
             ),
             None,
         )
-        if row is None:
+        if row is None or row.get("access", "link") != "link":
             raise DomainError(ErrorCode.FORBIDDEN, "No perteneces a este staff")
+        if row.get("member_event_id") not in (None, body.event_id):
+            raise DomainError(ErrorCode.FORBIDDEN, "No estás asignado a este evento")
         event = next(
             (
                 e

@@ -89,6 +89,11 @@ EXPECTED_OPERATIONS = {
     ("PUT", "/api/v1/staff-awards/{award_id}/assignment"): "assign_staff_award",
     ("POST", "/api/v1/staff-types/{type_id}/awards/confirm"): "confirm_staff_awards",
     ("GET", "/api/v1/staff/me"): "staff_me",
+    # Personas del staff por evento e invitación con rol (2026-11-08).
+    ("GET", "/api/v1/events/{event_id}/staff-members"): "list_event_staff",
+    ("POST", "/api/v1/events/{event_id}/invitations"): "invite_to_event",
+    ("POST", "/api/v1/staff-members/{member_id}/access"): "resend_staff_access",
+    ("GET", "/api/v1/staff/qr/{token}.png"): "staff_qr",
     ("PUT", "/api/v1/staff/evaluations"): "save_staff_evaluation",
 }
 

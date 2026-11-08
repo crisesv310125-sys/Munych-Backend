@@ -1,6 +1,7 @@
 """`StaffService` con un repositorio en memoria: rúbrica, evaluaciones y premios."""
 
 import uuid
+from collections.abc import Mapping
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any, cast
@@ -8,6 +9,8 @@ from uuid import UUID
 
 import pytest
 
+from munych_api.modules.identity.schemas import JudgeInvite, JudgeOut
+from munych_api.modules.identity.service import IdentityService
 from munych_api.modules.staff.repository import DELEGATE_KINDS, StaffRepository
 from munych_api.modules.staff.schemas import (
     AccessLinkIn,
@@ -19,6 +22,7 @@ from munych_api.modules.staff.schemas import (
     PersonIn,
     RubricIn,
     StaffEvaluationIn,
+    StaffInviteIn,
     StaffTypeIn,
 )
 from munych_api.modules.staff.service import StaffService
@@ -80,6 +84,8 @@ class FakeRepo:
         self.award_rows: dict[UUID, dict[str, Any]] = {}
         self.assignment_rows: list[dict[str, Any]] = []
         self.confirmation_rows: dict[tuple[UUID, UUID], datetime | None] = {}
+        self.auth_users: dict[str, UUID] = {}
+        self.committee_roles: dict[tuple[UUID, UUID], str] = {}
 
     # organización, eventos y comités
     async def organization_name(self, organization_id: UUID) -> str:
@@ -265,10 +271,21 @@ class FakeRepo:
         self.people_rows[person_id].update(values)
 
     async def upsert_member(
-        self, type_id: UUID, person_id: UUID, role: str, committee_ids: list[UUID]
+        self,
+        type_id: UUID,
+        person_id: UUID,
+        role: str,
+        committee_ids: list[UUID],
+        *,
+        event_id: UUID | None,
+        judge_id: UUID | None = None,
     ) -> UUID:
         for m in self.member_rows.values():
-            if (m["staff_type_id"], m["person_id"]) == (type_id, person_id):
+            if (m["staff_type_id"], m["person_id"], m["event_id"]) == (
+                type_id,
+                person_id,
+                event_id,
+            ):
                 m.update(role=role, committee_ids=committee_ids, removed_at=None)
                 return UUID(str(m["id"]))
         member_id = uuid.uuid4()
@@ -276,6 +293,8 @@ class FakeRepo:
             "id": member_id,
             "staff_type_id": type_id,
             "person_id": person_id,
+            "event_id": event_id,
+            "judge_id": judge_id,
             "role": role,
             "committee_ids": committee_ids,
             "removed_at": None,
@@ -288,6 +307,32 @@ class FakeRepo:
 
     async def organization_judges(self, organization_id: UUID) -> list[dict[str, Any]]:
         return [{"full_name": "Jueza Uno", "email": "jueza@example.org"}]
+
+    async def user_id_by_email(self, email: str) -> UUID | None:
+        return self.auth_users.get(email.lower())
+
+    async def assign_committee_role(
+        self, judge_id: UUID, committee_ids: list[UUID], role: str
+    ) -> None:
+        for c in committee_ids:
+            self.committee_roles[c, judge_id] = role
+
+    async def event_members(self, event_id: UUID, organization_id: UUID) -> list[dict[str, Any]]:
+        out = []
+        for m in self.member_rows.values():
+            if m["removed_at"] is not None or m["event_id"] not in (None, event_id):
+                continue
+            t = self.types[m["staff_type_id"]]
+            out.append(
+                {
+                    **self._member_view(m),
+                    "type_name": t["name"],
+                    "type_code": t["code"],
+                    "type_color": t["color"],
+                    "type_access": t.get("access", "link"),
+                }
+            )
+        return out
 
     # enlace personal
     async def person_by_token_hash(self, token_hash: str) -> dict[str, Any] | None:
@@ -303,6 +348,7 @@ class FakeRepo:
                 "member_id": m["id"],
                 "role": m["role"],
                 "member_committee_ids": m["committee_ids"],
+                "member_event_id": m["event_id"],
             }
             for m in self.member_rows.values()
             if m["person_id"] == person_id and m["removed_at"] is None
@@ -340,9 +386,60 @@ class FakeRepo:
         return row
 
 
+class FakeAuthAdmin:
+    """Supabase Auth en memoria: registra los correos enviados y el metadata en ese momento."""
+
+    def __init__(self, repo: FakeRepo) -> None:
+        self.repo = repo
+        self.metadata: dict[UUID, dict[str, str]] = {}
+        self.sent: list[tuple[str, dict[str, str]]] = []
+
+    async def create_confirmed_user(self, email: str, data: Mapping[str, str]) -> UUID:
+        user_id = uuid.uuid4()
+        self.repo.auth_users[email] = user_id
+        self.metadata[user_id] = dict(data)
+        return user_id
+
+    async def update_user_metadata(self, user_id: UUID, data: Mapping[str, str]) -> None:
+        self.metadata.setdefault(user_id, {}).update(data)
+
+    async def send_magic_link(self, email: str) -> None:
+        self.sent.append((email, dict(self.metadata[self.repo.auth_users[email]])))
+
+    async def invite_user_by_email(
+        self, email: str, *, redirect_to: str | None = None, data: Mapping[str, str] | None = None
+    ) -> UUID:  # pragma: no cover — las invitaciones van por IdentityService
+        raise AssertionError("no se usa")
+
+
+class FakeIdentity:
+    def __init__(self) -> None:
+        self.invited: list[JudgeInvite] = []
+
+    async def invite_judge(self, organization_id: UUID, data: JudgeInvite) -> JudgeOut:
+        self.invited.append(data)
+        return JudgeOut(
+            judge_id=uuid.uuid4(), email=data.email, full_name=data.full_name, active=True
+        )
+
+
 def make() -> tuple[StaffService, FakeRepo]:
     repo = FakeRepo()
     return StaffService(cast(StaffRepository, repo), FixedClock()), repo
+
+
+def make_with_auth() -> tuple[StaffService, FakeRepo, FakeAuthAdmin, FakeIdentity]:
+    repo = FakeRepo()
+    auth, identity = FakeAuthAdmin(repo), FakeIdentity()
+    service = StaffService(
+        cast(StaffRepository, repo),
+        FixedClock(),
+        identity=cast(IdentityService, identity),
+        auth_admin=auth,
+        panel_url="https://panel.test",
+        api_url="https://api.test/api/v1",
+    )
+    return service, repo, auth, identity
 
 
 async def _press_type(svc: StaffService, **kwargs: Any) -> UUID:
@@ -580,3 +677,81 @@ async def test_staff_is_shared_across_events() -> None:
     )
     assert (await svc.detail(ORG, type_id, EVENT)).awards[0].slots_assigned == 1
     assert (await svc.detail(ORG, type_id, NEXT_EVENT)).awards[0].slots_assigned == 0
+
+
+# ---------------------------------------------------------------- invitar con rol (por evento)
+
+
+async def test_invite_link_staff_sends_qr_email_and_clears_the_link() -> None:
+    svc, repo, auth, identity = make_with_auth()
+    type_id = await _press_type(svc)
+    out = await svc.invite(
+        ORG,
+        EVENT,
+        StaffInviteIn(
+            full_name="Valeria Gómez",
+            email="Valeria@Example.org",
+            role="staff",
+            staff_type_id=type_id,
+            committee_ids=[CS],
+        ),
+    )
+    assert out.kind == "link"
+    assert out.url is not None
+    assert out.url.startswith("https://panel.test/#/staff/evaluar/")
+    assert identity.invited == []  # sin cuenta con contraseña
+    ((email, data),) = auth.sent
+    assert email == "valeria@example.org"
+    assert data["staff_qr_url"].startswith("https://api.test/api/v1/staff/qr/")
+    assert data["staff_type"] == "Prensa"
+    # Tras enviar, el enlace no se queda en Supabase Auth.
+    user_id = repo.auth_users["valeria@example.org"]
+    assert auth.metadata[user_id]["staff_url"] == ""
+    # Miembro del tipo en este evento, con su comité.
+    (member,) = repo.member_rows.values()
+    assert (member["event_id"], member["committee_ids"]) == (EVENT, [CS])
+    # El QR del correo se puede pedir con el token vigente.
+    token = out.url.rsplit("/", 1)[1]
+    assert (await svc.qr_png(token)).startswith(b"\x89PNG")
+    (listed,) = await svc.event_members(ORG, EVENT)
+    assert listed.access == "invited"
+    assert await svc.event_members(ORG, NEXT_EVENT) == []
+
+
+async def test_invite_account_staff_gets_password_and_chair_role() -> None:
+    svc, repo, auth, identity = make_with_auth()
+    mesa = (
+        await svc.create_type(
+            ORG, StaffTypeIn(name="Mesa Directiva", access="account", counts_as="chair")
+        )
+    ).id
+    with pytest.raises(DomainError):  # la mesa necesita su comité
+        await svc.invite(
+            ORG,
+            EVENT,
+            StaffInviteIn(full_name="Ana", email="ana@x.org", role="staff", staff_type_id=mesa),
+        )
+    out = await svc.invite(
+        ORG,
+        EVENT,
+        StaffInviteIn(
+            full_name="Ana", email="ana@x.org", role="staff", staff_type_id=mesa, committee_ids=[AG]
+        ),
+    )
+    assert out.kind == "account"
+    assert [i.email for i in identity.invited] == ["ana@x.org"]
+    assert auth.sent == []  # sin QR: entra con contraseña
+    assert list(repo.committee_roles.values()) == ["chair"]
+
+
+async def test_judge_role_only_in_events_with_judges() -> None:
+    svc, repo, _, identity = make_with_auth()
+    body = StaffInviteIn(full_name="Juan", email="juan@x.org", role="judge", committee_ids=[AG])
+    with pytest.raises(DomainError) as exc:  # MUN regular: no hay jueces
+        await svc.invite(ORG, EVENT, body)
+    assert exc.value.code == ErrorCode.CONFLICT
+    repo.event_rows[1]["event_type"] = "national_championship"
+    out = await svc.invite(ORG, EVENT, body)
+    assert out.kind == "judge"
+    assert list(repo.committee_roles.values()) == ["judge"]
+    assert identity.invited[0].event_id == EVENT
