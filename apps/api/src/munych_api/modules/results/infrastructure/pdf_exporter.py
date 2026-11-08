@@ -584,6 +584,8 @@ class PdfExporter:
         else:
             story.append(p("Todavía no hay premios asignados.", S_MUTED))
 
+        story += self._special_awards(data)
+
         notes = [("Pos.", "orden dentro del mismo premio cuando hay varios")]
         if include_scores:
             notes.append(("Nota", self._score_note(data.event_type)))
@@ -604,6 +606,99 @@ class PdfExporter:
                 ]
             ),
         ]
+        return story
+
+    def _special_awards(self, data: ExportData) -> list[Flowable]:
+        """«Premios especiales»: los premios propios de cada tipo de staff (handoff de
+        gestión de staff), después del resumen de premiación. Solo los confirmados."""
+        if not data.special_awards:
+            return []
+        count = len(data.special_awards)
+        heading = Table(
+            [
+                [
+                    p(
+                        f'<font name="{MONO}" size="8" color="{GOLD_HEX}">02</font>&nbsp;&nbsp;'
+                        "Premios especiales",
+                        S_H2,
+                    ),
+                    p(
+                        f"Staff · {count} {'premio' if count == 1 else 'premios'}",
+                        S_RIGHT_MUTED,
+                    ),
+                ]
+            ],
+            colWidths=[CONTENT_W * 0.6, CONTENT_W * 0.4],
+        )
+        heading.setStyle(
+            TableStyle(
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ]
+            )
+        )
+        include_scores = data.options.include_scores
+        rows: list[list[object]] = []
+        group_starts: list[int] = []
+        previous: str | None = None
+        for award in data.special_awards:
+            first = award.staff_type != previous
+            previous = award.staff_type
+            if first:
+                group_starts.append(len(rows) + 1)
+            names = [format_name(n, data.name_format) for n in award.delegates]
+            label = award.character_name or (
+                country_name(award.country_code) if award.country_code else "—"
+            )
+            delegation = f'<font name="{SANS_BOLD}" color="{INK_HEX}">{e(label)}</font>'
+            if award.country_code and not award.character_name:
+                delegation = (
+                    f'<font name="{MONO}" size="6.5" color="{NAVY_HEX}" '
+                    f'backColor="{CHIP_BG_HEX}">&nbsp;{e(award.country_code.upper())}&nbsp;</font>'
+                    f"&nbsp;&nbsp;{delegation}"
+                )
+            if award.committee_acronym:
+                delegation += (
+                    f'<br/><font size="6.5" color="{MUTED_HEX}">{e(award.committee_acronym)}</font>'
+                )
+            row: list[object] = [
+                p(e(award.staff_type), S_COMMITTEE) if first else "",
+                p(e(award.award)),
+                p(
+                    str(award.position) if award.winners > 1 else "",
+                    _style("pos", fontName=SANS_BOLD, textColor=NAVY),
+                ),
+                p(delegation),
+                p(e(", ".join(n for n in names if n) or "—")),
+                p(e(award.institution or "—"), S_MUTED),
+            ]
+            if include_scores:
+                row.append(p(score_text(award.score), S_SCORE))
+            rows.append(row)
+        header = ["STAFF", "PREMIO", "POS.", "DELEGACIÓN / CANDIDATO", "DELEGADOS", "INSTITUCIÓN"]
+        widths = [82, 96, 26, 112, 92, 82]
+        if include_scores:
+            header.append("NOTA")
+            widths.append(42)
+        else:
+            widths[3] += 42
+        table = data_table(header, rows, widths, right={6})
+        table.setStyle(
+            TableStyle([("VALIGN", (0, start), (0, start), "TOP") for start in group_starts])
+        )
+        story: list[Flowable] = [Spacer(1, 16), heading, Spacer(1, 4), table]
+        if include_scores:
+            story += [
+                Spacer(1, 4),
+                p(
+                    "Nota de los premios especiales: 0–100 con la rúbrica propia de cada staff "
+                    "(promedio de sus evaluadores). La nota solo sugiere; los premios los "
+                    "confirma el admin.",
+                    _style("special_note", fontSize=7, leading=10, textColor=MUTED),
+                ),
+            ]
         return story
 
     def _warning_box(self, data: ExportData) -> list[Flowable]:
@@ -627,6 +722,8 @@ class PdfExporter:
     def _contents(data: ExportData) -> str:
         opts = data.options
         parts = ["resumen de premiación", "ranking por comité"]
+        if data.special_awards:
+            parts.insert(1, "premios especiales del staff")
         if opts.include_details:
             parts.append("desglose por criterio")
         if opts.include_details or opts.include_comments or opts.include_judge_names:

@@ -83,6 +83,7 @@ class ExportEvent:
             brand=event.brand,
             event_type=committees[0].event_type if committees else DEFAULT_EVENT_TYPE,
             name_format=event.publication_settings.name_format,
+            special_awards=await self._repo.special_awards(event_id),
         )
         return ExportFile(
             filename=f"{event.slug}-resultados.{self._exporter.extension}",

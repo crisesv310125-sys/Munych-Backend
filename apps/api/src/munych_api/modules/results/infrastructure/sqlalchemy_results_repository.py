@@ -22,6 +22,7 @@ from munych_api.modules.results.domain.models import (
     RubricInfo,
     ScoreValue,
     SessionInfo,
+    SpecialAward,
 )
 from munych_api.scoring_engine.staff import (
     StaffEvaluation,
@@ -46,6 +47,9 @@ from munych_api.shared.database.tables import (
     rubrics,
     scores,
     scoring_sessions,
+    staff_award_assignments,
+    staff_award_confirmations,
+    staff_awards,
     staff_evaluations,
     staff_members,
     staff_types,
@@ -425,6 +429,163 @@ class SqlAlchemyResultsRepository:
             )
             for r in rows
         ]
+
+    # ------------------------------------------------------------ premios especiales (staff)
+
+    async def special_awards(self, event_id: UUID) -> list[SpecialAward]:
+        """Premios de los tipos de staff de la organización **confirmados** en el evento."""
+        organization_id = await self._session.scalar(
+            select(events.c.organization_id).where(events.c.id == event_id)
+        )
+        if organization_id is None:
+            return []
+        type_rows = {
+            t["id"]: t
+            for t in (
+                await self._session.execute(
+                    select(staff_types)
+                    .join(
+                        staff_award_confirmations,
+                        (staff_award_confirmations.c.staff_type_id == staff_types.c.id)
+                        & (staff_award_confirmations.c.event_id == event_id),
+                    )
+                    .where(
+                        staff_types.c.organization_id == organization_id,
+                        staff_types.c.archived_at.is_(None),
+                        staff_award_confirmations.c.confirmed_at.is_not(None),
+                    )
+                )
+            ).mappings()
+        }
+        if not type_rows:
+            return []
+        award_rows = {
+            a["id"]: a
+            for a in (
+                await self._session.execute(
+                    select(staff_awards).where(
+                        staff_awards.c.staff_type_id.in_(list(type_rows)),
+                        staff_awards.c.archived_at.is_(None),
+                    )
+                )
+            ).mappings()
+        }
+        assignment_rows = (
+            (
+                await self._session.execute(
+                    select(staff_award_assignments).where(
+                        staff_award_assignments.c.award_id.in_(list(award_rows)),
+                        staff_award_assignments.c.event_id == event_id,
+                        staff_award_assignments.c.candidate_id.is_not(None),
+                    )
+                )
+            )
+            .mappings()
+            .all()
+            if award_rows
+            else []
+        )
+        if not assignment_rows:
+            return []
+        candidates = await self._special_candidates([a["candidate_id"] for a in assignment_rows])
+        scores = await self._staff_candidate_scores(type_rows, list(candidates))
+
+        out: list[tuple[tuple[Any, ...], SpecialAward]] = []
+        for a in assignment_rows:
+            award = award_rows[a["award_id"]]
+            staff_type = type_rows[award["staff_type_id"]]
+            candidate = candidates.get(a["candidate_id"])
+            if candidate is None:  # el candidato ya no existe
+                continue
+            special = SpecialAward(
+                staff_type=staff_type["name"],
+                award=award["name"],
+                position=a["position"],
+                committee_acronym=candidate["committee_acronym"],
+                country_code=candidate["country_code"],
+                character_name=candidate["character_name"],
+                delegates=tuple(candidate["delegates"]),
+                institution=candidate["institution"],
+                score=scores.get((staff_type["id"], a["candidate_id"])),
+                winners=award["winners"],
+            )
+            key = (
+                staff_type["position"],
+                staff_type["name"],
+                award["position"],
+                candidate["committee_acronym"] or "",
+                a["position"],
+            )
+            out.append((key, special))
+        return [s for _, s in sorted(out, key=lambda pair: pair[0])]
+
+    async def _special_candidates(self, ids: list[UUID]) -> dict[UUID, dict[str, Any]]:
+        """Candidato → delegación, delegados, institución y comité. Sirve para los dos tipos
+        de candidato: delegación (todos sus delegados) o delegado (solo él)."""
+        out: dict[UUID, dict[str, Any]] = {}
+        base = select(
+            delegations.c.id.label("delegation_id"),
+            delegations.c.country_code,
+            delegations.c.character_name,
+            delegations.c.institution,
+            committees.c.acronym.label("committee_acronym"),
+        ).join(committees, committees.c.id == delegations.c.committee_id)
+        for d in (await self._session.execute(base.where(delegations.c.id.in_(ids)))).mappings():
+            names: list[str] = list(
+                await self._session.scalars(
+                    select(delegates.c.full_name)
+                    .where(delegates.c.delegation_id == d["delegation_id"])
+                    .order_by(delegates.c.created_at, delegates.c.id)
+                )
+            )
+            out[d["delegation_id"]] = {**d, "delegates": list(names)}
+        person_rows = await self._session.execute(
+            base.add_columns(
+                delegates.c.id.label("delegate_id"),
+                delegates.c.full_name,
+                delegates.c.institution.label("delegate_institution"),
+            )
+            .join(delegates, delegates.c.delegation_id == delegations.c.id)
+            .where(delegates.c.id.in_(ids))
+        )
+        for d in person_rows.mappings():
+            out[d["delegate_id"]] = {
+                **d,
+                "institution": d["delegate_institution"] or d["institution"],
+                "delegates": [d["full_name"]],
+            }
+        return out
+
+    async def _staff_candidate_scores(
+        self, type_rows: dict[UUID, Any], candidate_ids: list[UUID]
+    ) -> dict[tuple[UUID, UUID], Decimal | None]:
+        """Nota 0-100 de cada candidato premiado en la rúbrica de su tipo de staff."""
+        rows = await self._session.execute(
+            select(
+                staff_members.c.staff_type_id,
+                staff_evaluations.c.member_id,
+                staff_evaluations.c.candidate_id,
+            )
+            .add_columns(staff_evaluations.c["values"])
+            .join(staff_members, staff_members.c.id == staff_evaluations.c.member_id)
+            .where(
+                staff_members.c.staff_type_id.in_(list(type_rows)),
+                staff_evaluations.c.candidate_id.in_(candidate_ids),
+                (staff_members.c.removed_at.is_(None))
+                | staff_members.c.evaluations_count.is_(True),
+            )
+        )
+        by_type: dict[UUID, list[StaffEvaluation]] = defaultdict(list)
+        for r in rows:
+            by_type[r[0]].append(StaffEvaluation(str(r[1]), str(r[2]), values_from_json(r[3])))
+        out: dict[tuple[UUID, UUID], Decimal | None] = {}
+        for type_id, t in type_rows.items():
+            rubric = rubric_from_json(t["scale_min"], t["scale_max"], t["criteria"] or [])
+            for result in candidate_results(
+                rubric, by_type[type_id], [str(c) for c in candidate_ids], 1
+            ):
+                out[type_id, UUID(result.candidate_id)] = result.score
+        return out
 
     # ------------------------------------------------------------ publicación
 

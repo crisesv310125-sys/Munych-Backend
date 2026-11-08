@@ -59,7 +59,13 @@ class Publication:
         current = await self._repo.get_public_result(event.id)
         version = (current.version if current else 0) + 1
         document = build_public_view(
-            snapshot, event.publication_settings, version=version, published_at=published_at
+            snapshot,
+            event.publication_settings,
+            version=version,
+            published_at=published_at,
+            # Premios de staff confirmados (aparte de los de comité). Se leen al publicar:
+            # el staff puede confirmar después de cerrar el evento.
+            special_awards=await self._repo.special_awards(event.id),
         )
         return document, version
 

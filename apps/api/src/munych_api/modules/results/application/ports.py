@@ -14,6 +14,7 @@ from munych_api.modules.results.domain.models import (
     PublicationSettings,
     RankingEntry,
     RubricInfo,
+    SpecialAward,
 )
 from munych_api.shared.kernel.catalog import DEFAULT_EVENT_TYPE, EventType
 
@@ -89,6 +90,8 @@ class ExportData:
     event_type: EventType = DEFAULT_EVENT_TYPE
     name_format: NameFormat = "first_name_initial"
     """Formato de nombres de la publicación: el acta también protege a los menores."""
+    special_awards: list[SpecialAward] = field(default_factory=list)
+    """Premios de staff confirmados en el evento (sección «Premios especiales»)."""
 
 
 class ResultsRepository(Protocol):
@@ -123,6 +126,10 @@ class ResultsRepository(Protocol):
     async def latest_snapshot(self, event_id: UUID) -> dict[str, Any] | None: ...
 
     async def score_details(self, event_id: UUID) -> list[ScoreDetail]: ...
+
+    async def special_awards(self, event_id: UUID) -> list[SpecialAward]:
+        """Premios de staff **confirmados** en el evento, en orden (tipo, premio, comité, lugar)."""
+        ...
 
     # ---------------------------------------------------------------- publicación
     async def save_publication_settings(

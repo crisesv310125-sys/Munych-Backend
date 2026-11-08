@@ -21,6 +21,7 @@ from munych_api.modules.results.domain.models import (
     NameFormat,
     PublicationSettings,
     RankingEntry,
+    SpecialAward,
 )
 from munych_api.modules.results.domain.public_view import build_public_view, format_name
 from munych_api.modules.results.domain.snapshot import build_snapshot
@@ -169,6 +170,7 @@ def test_default_document_matches_contract() -> None:
             }
         ],
         "general_ranking": None,
+        "special_awards": [],
         "published_at": "2026-10-11T23:00:00Z",
         "version": 3,
     }
@@ -300,3 +302,54 @@ def test_settings_from_stored_json_uses_safe_defaults() -> None:
         {"name_format": "otro", "show_scores": "sí", "show_ranking": True}
     )
     assert parsed == PublicationSettings(show_ranking=True)
+
+
+# ---------------------------------------------------------------- premios especiales (staff)
+
+SPECIAL = SpecialAward(
+    staff_type="Prensa",
+    award="Mejor periodista",
+    position=1,
+    committee_acronym="CP",
+    country_code=None,
+    character_name="The MUNYCH Times",
+    delegates=("Sofía Méndez Ruiz",),
+    institution="Colegio Ejemplo",
+    score=Decimal("92.456"),
+)
+
+
+def test_special_awards_follow_the_whitelist() -> None:
+    default = build_public_view(
+        _snapshot(),
+        PublicationSettings(),
+        version=1,
+        published_at=PUBLISHED_AT,
+        special_awards=[SPECIAL],
+    )["special_awards"]
+    assert default == [
+        {
+            "staff": "Prensa",
+            "award": "Mejor periodista",
+            "position": 1,
+            "winners": 1,
+            "committee_acronym": "CP",
+            "delegation": {
+                "country_code": None,
+                "character_name": "The MUNYCH Times",
+                "institution": "Colegio Ejemplo",
+            },
+            "delegates": ["Sofía M."],
+            "score": None,
+        }
+    ]
+    strict = build_public_view(
+        _snapshot(),
+        PublicationSettings(name_format="hidden", show_institution=False, show_scores=True),
+        version=1,
+        published_at=PUBLISHED_AT,
+        special_awards=[SPECIAL],
+    )["special_awards"][0]
+    assert strict["delegates"] == []
+    assert strict["delegation"]["institution"] is None
+    assert strict["score"] == 92.46

@@ -32,6 +32,7 @@ from munych_api.modules.results.domain.models import (
     RubricInfo,
     ScoreValue,
     SessionInfo,
+    SpecialAward,
 )
 from munych_api.shared.kernel import DomainError, ErrorCode
 
@@ -126,6 +127,9 @@ class InMemoryResultsRepository:
 
     async def score_details(self, event_id: UUID) -> list[ScoreDetail]:
         return list(getattr(self, "details", []))
+
+    async def special_awards(self, event_id: UUID) -> list[SpecialAward]:
+        return list(getattr(self, "specials", []))
 
     async def save_publication_settings(
         self, event_id: UUID, settings: PublicationSettings

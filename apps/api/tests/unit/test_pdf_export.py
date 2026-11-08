@@ -25,6 +25,7 @@ from munych_api.modules.results.domain.models import (
     NameFormat,
     RankingEntry,
     RubricInfo,
+    SpecialAward,
 )
 from munych_api.modules.results.infrastructure.pdf_exporter import (
     PdfExporter,
@@ -151,6 +152,28 @@ def test_user_text_is_escaped() -> None:
     # los signos en trozos aparte: «(<) Tj (i) Tj (>) Tj (Rey)…»).
     assert b"(<) Tj (i) Tj (>) Tj (Rey)" in content
     assert b"(<) Tj (b) Tj (>) Tj (Ana)" in content
+
+
+def test_special_awards_section() -> None:
+    """Premios de staff confirmados: sección «Premios especiales» tras el resumen."""
+    plain = PdfExporter().export(data())
+    assert b"Premios especiales" not in plain
+    special = SpecialAward(
+        staff_type="Prensa",
+        award="Mejor periodista",
+        position=1,
+        committee_acronym="CP",
+        country_code="DO",
+        character_name=None,
+        delegates=("Sofia Mendez Ruiz",),
+        institution="Colegio Loyola",
+        score=Decimal("92.40"),
+    )
+    content = PdfExporter().export(replace(data(), special_awards=[special]))
+    assert pages(content) == 3
+    for text in (b"Premios especiales", b"Prensa", b"Mejor periodista", b"Sofia M.", b"92.40"):
+        assert text in content
+    assert b"Mendez" not in content
 
 
 ORATORIA = CriterionInfo(uuid.uuid4(), "Oratoria", Decimal(60), 1)

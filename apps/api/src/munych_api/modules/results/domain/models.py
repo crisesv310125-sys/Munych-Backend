@@ -157,6 +157,28 @@ class Award:
     position: int = 1
 
 
+@dataclass(frozen=True, slots=True)
+class SpecialAward:
+    """Premio de un tipo de staff ya confirmado en el evento («Premios especiales»).
+
+    El candidato es una delegación (con todos sus delegados) o un delegado (solo él).
+    """
+
+    staff_type: str
+    award: str
+    position: int
+    """Lugar dentro del mismo premio (1, 2… cuando entrega varios)."""
+    committee_acronym: str | None
+    """Comité del candidato (o del lugar, en premios por comité)."""
+    country_code: str | None
+    character_name: str | None
+    delegates: tuple[str, ...]
+    institution: str | None
+    score: Decimal | None
+    """Nota 0-100 de la rúbrica del staff (promedio de evaluaciones completas)."""
+    winners: int = 1
+
+
 # ---------------------------------------------------------------- evento y publicación
 
 

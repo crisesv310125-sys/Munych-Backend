@@ -4,10 +4,15 @@ Se construye por **lista blanca** a partir de la instantánea: nunca incluye
 jueces, comentarios, IDs internos ni puntajes si `show_scores = false`.
 """
 
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-from munych_api.modules.results.domain.models import NameFormat, PublicationSettings
+from munych_api.modules.results.domain.models import (
+    NameFormat,
+    PublicationSettings,
+    SpecialAward,
+)
 from munych_api.shared.kernel.catalog import AWARD_TYPES
 
 # Partículas que no se usan como inicial del apellido ("Juan de la Cruz" → "Juan C.").
@@ -114,12 +119,47 @@ def _general_ranking(
     return result
 
 
+def _special_awards(
+    awards: Sequence[SpecialAward], settings: PublicationSettings
+) -> list[dict[str, Any]]:
+    """Premios de staff confirmados («Premios especiales»), aparte de los de comité.
+
+    Misma lista blanca que el resto: nombres según `name_format`, institución solo con
+    `show_institution` y nota solo con `show_scores`.
+    """
+    out = []
+    for a in awards:
+        names = (format_name(n, settings.name_format) for n in a.delegates)
+        out.append(
+            {
+                "staff": a.staff_type,
+                "award": a.award,
+                "position": a.position,
+                "winners": a.winners,
+                "committee_acronym": a.committee_acronym,
+                "delegation": {
+                    "country_code": a.country_code,
+                    "character_name": a.character_name,
+                    "institution": a.institution if settings.show_institution else None,
+                },
+                "delegates": [n for n in names if n],
+                "score": (
+                    float(round(a.score, 2))
+                    if settings.show_scores and a.score is not None
+                    else None
+                ),
+            }
+        )
+    return out
+
+
 def build_public_view(
     snapshot: dict[str, Any],
     settings: PublicationSettings,
     *,
     version: int,
     published_at: datetime,
+    special_awards: Sequence[SpecialAward] = (),
 ) -> dict[str, Any]:
     event = snapshot["event"]
     return {
@@ -136,6 +176,7 @@ def build_public_view(
         "settings": settings.to_dict(),
         "committees": [_committee(c, settings) for c in snapshot["committees"]],
         "general_ranking": _general_ranking(snapshot["committees"], settings),
+        "special_awards": _special_awards(special_awards, settings),
         "published_at": published_at.isoformat().replace("+00:00", "Z"),
         "version": version,
     }
